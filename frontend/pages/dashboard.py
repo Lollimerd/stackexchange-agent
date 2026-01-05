@@ -21,8 +21,8 @@ neo4j_graph = Neo4jGraph(
 )
 
 def render_page():
-    st.header("📊 StackOverflow Import Dashboard")
-    st.caption("Track your StackOverflow data imports and database statistics")
+    st.header("📊 StackExchange Import Dashboard")
+    st.caption("Track your StackExchange data imports and database statistics")
     
     # Display container status in sidebar
     with st.sidebar:
@@ -39,7 +39,7 @@ def render_page():
             st.metric(
                 label="📝 Total Questions",
                 value=f"{summary['total_questions']:,}",
-                help="Total questions imported from StackOverflow"
+                help="Total questions imported from StackExchange"
             )
         
         with col2:

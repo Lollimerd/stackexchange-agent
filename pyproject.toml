@@ -18,6 +18,7 @@ dependencies = [
     "langfuse>=3.9.1",
     "langgraph>=0.6.8",
     "plotly>=6.3.1",
+    "pyvis>=0.3.2",
     "sentence-transformers>=5.1.1",
     "st-pages>=1.0.1",
     "streamlit>=1.50.0",
