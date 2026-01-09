@@ -1,8 +1,12 @@
 import streamlit as st
-import re, hashlib, requests, uuid, json, os
+import re, hashlib, requests, uuid, json, os, logging
 from streamlit_mermaid import st_mermaid
 from typing import List
 from datetime import datetime
+
+# Setup logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- API Configuration ---
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
