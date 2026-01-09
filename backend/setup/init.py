@@ -21,33 +21,28 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 
 # qwen3:8b works for now with limited context of 40k, qwen3:30b works with 256k max
 ANSWER_LLM = ChatOllama(
-    model="qwen3:1.7b", # Ensure your model produces <tool_call> tags
-    base_url=OLLAMA_BASE_URL, 
-    num_ctx=40968, # 40k context
-    num_predict=-2, # fill context
-    tfs_z=2.0, # reduce impact of less probable tokens from output
-    repeat_penalty=1.5, # higher, penalise repetitions
-    repeat_last_n=-1, # look back within context to penalise penalty
-    top_p=0.5, # more focused text
-    top_k=10, # give less diverse answers
-    mirostat=2.0, # enable mirostat 2.0 sampling for controlling perplexity
-    mirostat_tau=3.0, # output diversity
-    mirostat_eta=0.2, # learning rate, responsiveness
-    temperature=0.1, # lower temperature for more focused answers
+    model="qwen3:1.7b",
+    base_url=OLLAMA_BASE_URL,
+    num_ctx=40968,  # 40k context
+    num_predict=-2,  # fill context
+    repeat_penalty=1.5,  # higher, penalise repetitions
+    repeat_last_n=-1,  # look back within context to penalise penalty
+    top_p=0.5,  # more focused text
+    top_k=10,  # give less diverse answers
     reasoning=True,
-) 
+)
 
 # embedding model
 EMBEDDINGS = OllamaEmbeddings(
-    model="jina/jina-embeddings-v2-base-en:latest", 
-    base_url=OLLAMA_BASE_URL, 
-    num_ctx=8192, # 8k context
+    model="jina/jina-embeddings-v2-base-en:latest",
+    base_url=OLLAMA_BASE_URL,
+    num_ctx=8192,  # 8k context
 )
 
 # reranker model
 RERANKER_MODEL = HuggingFaceCrossEncoder(
-    model_name='BAAI/bge-reranker-base',
-    )  # Use 'cuda' if you have a GPU available.
+    model_name="BAAI/bge-reranker-base",
+)  # Use 'cuda' if you have a GPU available.
 
 # neo4j connection
 graph = Neo4jGraph(
@@ -55,9 +50,10 @@ graph = Neo4jGraph(
     username=NEO4J_USERNAME,
     password=NEO4J_PASSWORD,
     enhanced_schema=True,
-    refresh_schema=True
+    refresh_schema=True,
 )
 # print(f"\nschema: {graph.schema}\n")
+
 
 # define state for application
 class GraphState(TypedDict):
@@ -70,10 +66,12 @@ class GraphState(TypedDict):
         context: list of documents
         answer: answer
     """
+
     question: str
     chat_history: List[Dict[str, str]]
     context: List[Document]
     answer: str
+
 
 # test embedding generation
 # sample_embedding = EMBEDDINGS.embed_query("Hello world")
@@ -82,6 +80,7 @@ class GraphState(TypedDict):
 # ===========================================================================================================================================================
 # Creation of vector index, vectorstores and fulltext for hybrid vector search
 # ===========================================================================================================================================================
+
 
 def create_vector_stores(graph, EMBEDDINGS, retrieval_query) -> Dict[str, Neo4jVector]:
     """
@@ -95,7 +94,7 @@ def create_vector_stores(graph, EMBEDDINGS, retrieval_query) -> Dict[str, Neo4jV
     Returns:
         A dictionary of Neo4jVector store instances, keyed by their node label.
     """
-    
+
     # Define a list of configurations for each vector store
     store_configs = [
         {
@@ -108,22 +107,36 @@ def create_vector_stores(graph, EMBEDDINGS, retrieval_query) -> Dict[str, Neo4jV
         },
         {
             "node_label": "Question",
-            "text_node_properties": ["score", "link", "favourite_count", "id", "creation_date", "body", "title"],
+            "text_node_properties": [
+                "score",
+                "link",
+                "favourite_count",
+                "id",
+                "creation_date",
+                "body",
+                "title",
+            ],
         },
         {
             "node_label": "Answer",
-            "text_node_properties": ["score", "is_accepted", "id", "body", "creation_date"],
+            "text_node_properties": [
+                "score",
+                "is_accepted",
+                "id",
+                "body",
+                "creation_date",
+            ],
         },
     ]
 
     vectorstores = {}
-    
+
     # Loop through the configurations and create the vectorstores & vector indexes
     for config in store_configs:
         label = config["node_label"]
         index_name = f"{label}_index"
         keyword_index_name = f"{label}_keyword_index"
-        
+
         vectorstores[label.lower() + "store"] = Neo4jVector.from_existing_graph(
             graph=graph,
             node_label=label,
@@ -136,5 +149,5 @@ def create_vector_stores(graph, EMBEDDINGS, retrieval_query) -> Dict[str, Neo4jV
             retrieval_query=retrieval_query,
         )
         print(f"Created vectorstore for {index_name} index")
-        
+
     return vectorstores
