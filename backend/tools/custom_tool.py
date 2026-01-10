@@ -239,7 +239,7 @@ def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
 def process_with_topic_analysis(input_dict: Dict) -> Dict:
     """Enriches input with topic continuity analysis before processing."""
     try:
-        from utils.memory import (
+        from utils.topic_continuity import (
             calculate_topic_similarity,
             get_relevant_context_for_continuation,
         )
