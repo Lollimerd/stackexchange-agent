@@ -1,9 +1,9 @@
 
 -----
 
-# StackOverflow GraphRAG Chatbot
+# StackExchange GraphRAG Chatbot
 
-This project is a sophisticated Graph-based Retrieval-Augmented Generation (GraphRAG) application. It leverages a Neo4j graph database to store and query StackOverflow data, a FastAPI backend to handle logic, and a multi-featured Streamlit UI for user interaction. The system can answer questions by retrieving relevant context from the knowledge graph and synthesizing answers using a local LLM hosted via Ollama.
+This project is a sophisticated Graph-based Retrieval-Augmented Generation (GraphRAG) application. It leverages a Neo4j graph database to store and query StackExchange data (like StackOverflow), a FastAPI backend to handle logic, and a multi-featured Streamlit UI for user interaction. The system can answer questions by retrieving relevant context from the knowledge graph and synthesizing answers using a local LLM hosted via Ollama.
 
 ## ✨ Features
 
@@ -13,21 +13,65 @@ This project is a sophisticated Graph-based Retrieval-Augmented Generation (Grap
   * **Visible Agent Thoughts**: The LLM is prompted to "think" before answering. This thought process is captured and displayed in a collapsible expander in the UI, providing transparency into the agent's reasoning.
   * **Interactive Multi-Chat UI**: The Streamlit frontend supports multiple, independent chat sessions. Users can create, delete, and switch between chats, with history saved for each session.
   * **Dynamic Data Ingestion**: A "Stackoverflow Loader" tab in the UI allows users to pull data directly from the Stack Exchange API by tag or by top-voted questions and load it into the Neo4j database.
+  * **Graph Explorer**: An interactive visualization tool (`neo4j_explorer.py`) to navigate the knowledge graph, filter by node/relationship types, and focus on specific entities.
+  * **Analytics Dashboard**: A dedicated dashboard (`dashboard.py`) tracking import history, database statistics, and trends over time.
+  * **Dockerized Deployment**: Fully containerized setup using Docker Compose, orchestrating the FastAPI backend, Streamlit frontend, Neo4j database, and Ollama services.
   * **Configuration Display**: The UI fetches and displays key configuration details (like the Ollama model and Neo4j connection info) from the backend.
 
 ## 🏗️ Architecture
 
+```mermaid
+graph TD
+    User([User])
+    subgraph Frontend [Streamlit UI]
+        Chat[Chat Interface]
+        Loader[Data Loader]
+        Explorer[Graph Explorer]
+        Dash[Dashboard]
+    end
+
+    subgraph Backend [FastAPI Server]
+        API[API Endpoints]
+        Planner[GraphRAG Planner]
+        Retriever[Ensemble Retriever]
+    end
+
+    subgraph Data [Data Layer]
+        Neo4j[(Neo4j Graph DB)]
+        Ollama[[Ollama LLM]]
+        SE_API[StackExchange API]
+    end
+
+    User --> Chat
+    User --> Loader
+    User --> Explorer
+    User --> Dash
+
+    Chat <-->|Stream/Think| API
+    Loader -->|Import Request| API
+    Explorer -->|Query| Neo4j
+    Dash -->|Stats| Neo4j
+
+    API --> Planner
+    Planner -->|Search| Retriever
+    Retriever <-->|Vector + Graph| Neo4j
+    Planner <-->|Generate| Ollama
+    
+    Loader -.->|Fetch Data| SE_API
+    Loader -->|Embed & Store| Neo4j
+```
+
 The application is composed of three main components that work together:
 
-1.  **Neo4j Database**: The knowledge graph that stores StackOverflow data (Questions, Answers, Users, Tags) and their relationships. Vector indexes are created on nodes for efficient similarity search.
-2.  **FastAPI Backend (`llmz.py`)**:
+1.  **Neo4j Database**: The knowledge graph that stores StackExchange data (Questions, Answers, Users, Tags) and their relationships. Vector indexes are created on nodes for efficient similarity search.
+2.  **FastAPI Backend (`backend/app/backend.py`)**:
       * Exposes a `/stream-ask` endpoint that receives a user's question.
       * Embeds the question and uses a LangChain `EnsembleRetriever` to perform a hybrid search across multiple Neo4j vector indexes.
       * Executes a detailed Cypher query to retrieve a rich subgraph of context around the matched questions.
       * Formats the retrieved context and the user's question into a prompt for the LLM.
       * Streams the generated response back to the client, using special tags (`<|THINK_START|>`, `<|THINK_END|>`) to delineate the model's thought process from the final answer.
       * Provides a `/api/v1/config` endpoint for the frontend.
-3.  **Streamlit Frontend (`streamlit_UI.py`)**:
+3.  **Streamlit Frontend (`frontend/web.py`)**:
       * Provides the user interface for chatting.
       * Manages multiple chat sessions, including history.
       * Sends user queries to the FastAPI backend and processes the streamed response.
@@ -94,22 +138,26 @@ Fill in the `.env` file with your actual Neo4j and Ollama details.
 
 ### 4\. Run the Application
 
-The provided `start.sh` script will run both the backend and frontend services concurrently.
+### 4\. Run the Application
+
+The provided `run.sh` script will run both the backend and frontend services concurrently.
 
 ```bash
-chmod +x start.sh
-./start.sh
+chmod +x run.sh
+./run.sh
 ```
 
 Alternatively, you can run them in separate terminals:
 
   * **Terminal 1: Start the FastAPI Backend**
     ```bash
-    uvicorn llmz:app --host 0.0.0.0 --port 8080
+    cd backend
+    python -m app.backend
     ```
   * **Terminal 2: Start the Streamlit Frontend**
     ```bash
-    streamlit run streamlit_UI.py
+    cd frontend
+    streamlit run web.py
     ```
 
 ### 5\. Load Data and Chat
@@ -124,19 +172,28 @@ Alternatively, you can run them in separate terminals:
 
 ```
 .
-├── llmz.py             # FastAPI backend server with the core GraphRAG logic.
-├── streamlit_UI.py     # Main Streamlit frontend application with multi-chat UI.
-├── loader.py           # Data ingestion logic for the StackOverflow loader tab.
-├── utils.py            # Utility functions for formatting and DB setup.
-├── qbot.py             # A simpler, single-chat version of the Streamlit UI.
-├── start.sh            # Convenience script to run backend and frontend.
-├── .env                # (You create this) Secret keys and configuration.
-└── requirements.txt    # (You create this) Python package dependencies.
+├── backend/
+│   ├── app/
+│   │   └── backend.py      # FastAPI backend server with the core GraphRAG logic.
+│   ├── tools/              # Custom LangChain tools (e.g., graph_rag_chain).
+│   ├── utils/              # Backend utility functions.
+│   └── requirements.txt    # Backend dependencies.
+├── frontend/
+│   ├── web.py              # Main Streamlit frontend application.
+│   ├── pages/
+│   │   ├── dashboard.py    # Analytics dashboard page.
+│   │   ├── loader.py       # StackExchange data ingestion page.
+│   │   └── neo4j_explorer.py # Graph visualization page.
+│   ├── utils/              # Frontend utility functions.
+│   └── requirements.txt    # Frontend dependencies.
+├── run.sh                  # Convenience script to run backend and frontend.
+├── docker-compose.yml      # Docker coordination for app, db, and llm.
+└── .env                    # (You create this) Secret keys and configuration.
 ```
 
 ## 🧠 How It Works: A Deeper Dive
 
-#### 1\. Data Ingestion (`loader.py`)
+#### 1\. Data Ingestion (`frontend/pages/loader.py`)
 
 When you use the loader UI, the application calls the Stack Exchange API. For each question and its answers, it:
 
@@ -144,7 +201,7 @@ When you use the loader UI, the application calls the Stack Exchange API. For ea
 2.  Uses the `OllamaEmbeddings` class (`bge-m3` model) to generate a vector embedding for the text.
 3.  Executes a single, powerful Cypher query (`UNWIND $data AS q...`) to efficiently batch-create all the `Question`, `Answer`, `User`, and `Tag` nodes and their relationships (`:ANSWERS`, `:TAGGED`, etc.) in Neo4j.
 
-#### 2\. Retrieval (`llmz.py`)
+#### 2\. Retrieval (`backend/app/backend.py`)
 
 This is the core of the "GraphRAG" process.
 
@@ -152,7 +209,7 @@ This is the core of the "GraphRAG" process.
 2.  **Custom Cypher Injection**: The `retrieval_query` is the most critical part. When a retriever finds a candidate node (e.g., a `Question` node via vector search), this query doesn't just return that node's text. Instead, it uses the node as an entry point to explore the graph. It traverses relationships to gather the asker's details, all associated tags, and a collection of all answers with their providers' details.
 3.  **Structured Output**: The query formats this rich subgraph information into a structured `metadata` JSON object, which is attached to the LangChain `Document`.
 
-#### 3\. Generation & Streaming (`llmz.py` & `streamlit_UI.py`)
+#### 3\. Generation & Streaming (`backend/app/backend.py` & `frontend/web.py`)
 
 1.  The retrieved `Documents` (with their rich metadata) are formatted into a single context string by `format_docs_with_metadata`.
 2.  This context is inserted into a prompt that explicitly instructs the LLM to first think step-by-step inside `<think></think>` tags and then provide the final answer.
