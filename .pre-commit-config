@@ -1,0 +1,45 @@
+repos:
+  # Standard hooks for general repository health
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: (\.csv|\.cypher|\.excalidraw|\.json)$
+      - id: end-of-file-fixer
+        exclude: (\.csv|\.cypher|\.excalidraw)$
+      - id: check-yaml
+      - id: check-toml
+
+  # Ruff for linting and formatting
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.12
+    hooks:
+      # Run ruff-check only on files in the backend and frontend directories
+      - id: ruff-check
+        name: ruff-check
+        types_or: [ python, pyi ]
+        args: [ --fix ]
+      # Run ruff-format only on files in the backend and frontend directories
+      - id: ruff-format
+        name: ruff-format
+        types_or: [ python, pyi ]
+
+  # Uncomment below when ready for type checking
+  # # Mypy for type checking
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.17.1 # Use a recent version
+    hooks:
+      # Run mypy only on files in the backend directory
+      - id: mypy
+        name: mypy (backend)
+        files: ^backend/
+        # Optional: You can specify mypy arguments here
+        # For instance, to respect your project's pyproject.toml
+        # args: [--no-warn-unused-ignores, --show-column-numbers]
+        additional_dependencies: [pydantic, fastapi, "uvicorn[standard]"] # Adjust based on your backend dependencies
+
+  # uv-pre-commit to keep lockfile in sync
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.8.15 # Use a recent version
+    hooks:
+      - id: uv-lock
