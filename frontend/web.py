@@ -205,7 +205,7 @@ with st.sidebar:
     chat_ids = list(st.session_state.chats.keys())
 
     # Create a container with fixed height inside the sidebar (scrollable pane)
-    chat_container = st.container(height=150, border=True)
+    chat_container = st.container(height=300, border=True)
 
     for chat_id in reversed(chat_ids):
         chat_data = st.session_state.chats[chat_id]
