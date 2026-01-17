@@ -1,5 +1,14 @@
 # main.py
 import asyncio
+import json
+import logging
+import os
+import time
+from datetime import datetime
+from typing import AsyncGenerator, Dict, List
+from urllib.parse import urlparse
+import uuid
+import uvicorn
 from datetime import datetime
 import json
 import logging
@@ -10,12 +19,6 @@ from urllib.parse import urlparse
 import uuid
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-import uvicorn
-
 from setup.init import (
     ANSWER_LLM,
     EMBEDDINGS,
@@ -24,7 +27,8 @@ from setup.init import (
     NEO4J_USERNAME,
     graph,
 )
-from tools.custom_tool import graph_rag_tool
+from tools.custom_tool import graph_rag_tool, graph_rag_chain
+from utils.util import find_container_by_port
 from utils.memory import (
     add_ai_message_to_session,
     add_user_message_to_session,
@@ -257,7 +261,7 @@ async def ingest_stackoverflow_data(request: IngestRequest):
                 question_text = q.get("title", "") + "\n" + q.get("body_markdown", "")
                 q["embedding"] = EMBEDDINGS.embed_query(question_text)
                 # Sleep a tiny bit to be nice to Ollama if needed, though requests are sequential here
-                time.sleep(0.1)
+                # time.sleep(0.1)
 
                 for a in q.get("answers", []):
                     answer_text = question_text + "\n" + a.get("body_markdown", "")
