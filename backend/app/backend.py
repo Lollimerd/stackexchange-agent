@@ -1,5 +1,5 @@
 # main.py
-import asyncio, os, json, uvicorn, logging
+import asyncio, os, json, uvicorn, logging, uuid
 from datetime import datetime
 from typing import AsyncGenerator, List, Dict
 from fastapi import FastAPI, HTTPException
@@ -9,7 +9,14 @@ from pydantic import BaseModel
 from urllib.parse import urlparse
 from dotenv import load_dotenv
 from utils.util import find_container_by_port
-from setup.init import ANSWER_LLM, NEO4J_URL, NEO4J_USERNAME, NEO4J_PASSWORD
+from setup.init import (
+    ANSWER_LLM,
+    NEO4J_URL,
+    NEO4J_USERNAME,
+    NEO4J_PASSWORD,
+    EMBEDDINGS,
+    graph,
+)
 from tools.custom_tool import graph_rag_chain
 from utils.memory import (
     get_chat_history,
@@ -53,6 +60,16 @@ class QueryRequest(BaseModel):
     question: str
     session_id: str
     user_id: str = ""
+
+
+class IngestRequest(BaseModel):
+    data: List[Dict]
+
+
+class ImportRecordRequest(BaseModel):
+    total_questions: int
+    tags_list: List[str]
+    total_pages: int
 
 
 @app.get("/")
@@ -179,6 +196,111 @@ def delete_app_user(user_id: str):
         return {"status": "success", "message": f"User {user_id} deleted"}
     except Exception as e:
         logger.error(f"Error deleting user {user_id}: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+# ===========================================================================================================================================================
+# Ingestion Endpoints
+# ===========================================================================================================================================================
+
+import_query = """
+    UNWIND $data AS q
+    MERGE (question:Question {id:q.question_id}) 
+    ON CREATE SET question.title = q.title, question.link = q.link, question.score = q.score,
+        question.favorite_count = q.favorite_count, question.creation_date = datetime({epochSeconds: q.creation_date}),
+        question.body = q.body_markdown, question.embedding = q.embedding
+    FOREACH (tagName IN q.tags | 
+        MERGE (tag:Tag {name:tagName}) 
+        MERGE (question)-[:TAGGED]->(tag)
+    )
+    FOREACH (a IN q.answers |
+        MERGE (question)<-[:ANSWERS]-(answer:Answer {id:a.answer_id})
+        SET answer.is_accepted = a.is_accepted,
+            answer.score = a.score,
+            answer.creation_date = datetime({epochSeconds:a.creation_date}),
+            answer.body = a.body_markdown,
+            answer.embedding = a.embedding
+        MERGE (answerer:User {id:coalesce(a.owner.user_id, "deleted")}) 
+        ON CREATE SET answerer.display_name = a.owner.display_name,
+                      answerer.reputation= a.owner.reputation
+        MERGE (answer)<-[:PROVIDED]-(answerer)
+    )
+    WITH * WHERE NOT q.owner.user_id IS NULL
+    MERGE (owner:User {id:q.owner.user_id})
+    ON CREATE SET owner.display_name = q.owner.display_name,
+                  owner.reputation = q.owner.reputation
+    MERGE (owner)-[:ASKED]->(question)
+    """
+
+
+@app.post("/api/v1/ingest")
+async def ingest_stackoverflow_data(request: IngestRequest):
+    """Ingest StackOverflow data: compute embeddings and insert into Neo4j."""
+    try:
+        data_items = request.data
+        if not data_items:
+            return {"status": "skipped", "message": "No data items to ingest."}
+
+        # Use a separate thread for the heavy lifting (embeddings + DB)
+        def process_ingestion(items):
+            # 1. Compute embeddings
+            for q in items:
+                # Combine title and body for the question embedding
+                question_text = q.get("title", "") + "\n" + q.get("body_markdown", "")
+                q["embedding"] = EMBEDDINGS.embed_query(question_text)
+                # Sleep a tiny bit to be nice to Ollama if needed, though requests are sequential here
+                # time.sleep(0.1)
+
+                for a in q.get("answers", []):
+                    answer_text = question_text + "\n" + a.get("body_markdown", "")
+                    a["embedding"] = EMBEDDINGS.embed_query(answer_text)
+
+            # 2. Insert into Neo4j
+            graph.query(import_query, {"data": items})
+            return len(items)
+
+        count = await asyncio.to_thread(process_ingestion, data_items)
+
+        return {"status": "success", "count": count}
+
+    except Exception as e:
+        logger.error(f"Error during ingestion: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/v1/ingest/record")
+async def record_import_session(request: ImportRecordRequest):
+    """Record an import session in Neo4j."""
+    try:
+        import_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+
+        query = """
+        CREATE (log:ImportLog {
+            id: $import_id,
+            timestamp: datetime($timestamp),
+            total_questions: $total_questions,
+            total_tags: $total_tags,
+            total_pages: $total_pages,
+            tags_list: $tags_list
+        })
+        """
+
+        params = {
+            "import_id": import_id,
+            "timestamp": timestamp,
+            "total_questions": request.total_questions,
+            "total_tags": len(request.tags_list),
+            "total_pages": request.total_pages,
+            "tags_list": request.tags_list,
+        }
+
+        # Run query in thread
+        await asyncio.to_thread(graph.query, query, params)
+
+        return {"status": "success", "import_id": import_id}
+    except Exception as e:
+        logger.error(f"Error recording import session: {e}")
         return {"status": "error", "message": str(e)}
 
 
