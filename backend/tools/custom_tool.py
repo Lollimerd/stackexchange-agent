@@ -5,8 +5,10 @@ from setup.init import (
     ANSWER_LLM,
     RERANKER_MODEL,
 )
-from langchain.retrievers import EnsembleRetriever, ContextualCompressionRetriever
-from langchain.retrievers.document_compressors import CrossEncoderReranker
+
+from langchain_classic.retrievers.ensemble import EnsembleRetriever
+from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain_classic.retrievers.document_compressors.cross_encoder_rerank import CrossEncoderReranker
 from typing import List, Dict
 from langchain_core.documents import Document
 from prompts.st_overflow import analyst_prompt
@@ -239,22 +241,21 @@ def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
 def process_with_topic_analysis(input_dict: Dict) -> Dict:
     """Enriches input with topic continuity analysis before processing."""
     try:
-        from utils.topic_continuity import (
-            calculate_topic_similarity,
-            get_relevant_context_for_continuation,
-        )
+        from utils.topic_manager import TopicManager
 
         question = input_dict.get("question", "")
         session_topic = input_dict.get("session_topic", "")
         session_id = input_dict.get("session_id", "")
 
         # Calculate similarity
-        similarity_data = calculate_topic_similarity(question, session_topic)
+        similarity_data = TopicManager.calculate_topic_similarity(
+            question, session_topic
+        )
 
         # Get relevant previous context
         relevant_context = []
         if session_id:
-            relevant_context = get_relevant_context_for_continuation(
+            relevant_context = TopicManager.get_relevant_context_for_continuation(
                 session_id, question, max_messages=3
             )
 
@@ -300,24 +301,8 @@ try:
                 x.get("chat_history", [])
             ),
         )
-        | RunnablePassthrough.assign(
-            session_topic=lambda x: x.get("session_topic", "General Discussion"),
-            topic_similarity_score=lambda x: process_with_topic_analysis(x).get(
-                "topic_similarity_score", "0.50"
-            ),
-            topic_confidence=lambda x: process_with_topic_analysis(x).get(
-                "topic_confidence", "low"
-            ),
-            topic_status=lambda x: process_with_topic_analysis(x).get(
-                "topic_status", ""
-            ),
-            relevant_context=lambda x: process_with_topic_analysis(x).get(
-                "relevant_context", ""
-            ),
-            continuity_instruction=lambda x: process_with_topic_analysis(x).get(
-                "continuity_instruction", ""
-            ),
-        )
+        # Fix: Run topic analysis ONCE and merge results
+        | process_with_topic_analysis
         | analyst_prompt
         | ANSWER_LLM
     )
