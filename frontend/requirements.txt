@@ -1,0 +1,13 @@
+streamlit
+streamlit_mermaid
+streamlit_timeline
+st_pages
+httpx
+httpx-sse
+requests
+plotly
+pandas
+python-dotenv
+langchain-neo4j
+langchain-ollama
+pyvis
