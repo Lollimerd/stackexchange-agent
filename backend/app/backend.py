@@ -304,6 +304,54 @@ async def record_import_session(request: ImportRecordRequest):
         return {"status": "error", "message": str(e)}
 
 
+@app.put("/api/v1/ingest/record/{import_id}")
+async def update_import_session(import_id: str, request: ImportRecordRequest):
+    """Update an existing import session in Neo4j."""
+    try:
+        query = """
+        MATCH (log:ImportLog {id: $import_id})
+        SET log.total_questions = $total_questions,
+            log.total_tags = $total_tags,
+            log.total_pages = $total_pages,
+            log.tags_list = $tags_list
+        RETURN log
+        """
+
+        params = {
+            "import_id": import_id,
+            "total_questions": request.total_questions,
+            "total_tags": len(request.tags_list),
+            "total_pages": request.total_pages,
+            "tags_list": request.tags_list,
+        }
+
+        # Run query in thread
+        await asyncio.to_thread(graph.query, query, params)
+
+        return {"status": "success", "message": f"Import session {import_id} updated"}
+    except Exception as e:
+        logger.error(f"Error updating import session: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/v1/ingest/record/{import_id}")
+async def delete_import_session(import_id: str):
+    """Delete an import session from Neo4j."""
+    try:
+        query = """
+        MATCH (log:ImportLog {id: $import_id})
+        DETACH DELETE log
+        """
+
+        # Run query in thread
+        await asyncio.to_thread(graph.query, query, {"import_id": import_id})
+
+        return {"status": "success", "message": f"Import session {import_id} deleted"}
+    except Exception as e:
+        logger.error(f"Error deleting import session: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # --- ✨ REFACTORED: Streaming Endpoint with Thinking Handler ---
 # FIX: Use asyncio.to_thread to prevent Neo4j blocking from blocking event loop
 
