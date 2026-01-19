@@ -12,3 +12,4 @@ __init__.py
 # Exception: Do NOT ignore requirements.txt
 !requirements.txt
 logs.py
+tests/
