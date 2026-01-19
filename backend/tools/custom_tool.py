@@ -7,8 +7,13 @@ from setup.init import (
 )
 
 from langchain_classic.retrievers.ensemble import EnsembleRetriever
-from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
-from langchain_classic.retrievers.document_compressors.cross_encoder_rerank import CrossEncoderReranker
+from langchain_classic.retrievers.contextual_compression import (
+    ContextualCompressionRetriever,
+)
+from langchain_classic.retrievers.document_compressors.cross_encoder_rerank import (
+    CrossEncoderReranker,
+)
+from langchain_core.runnables import RunnableLambda
 from typing import List, Dict
 from langchain_core.documents import Document
 from prompts.st_overflow import analyst_prompt
@@ -161,16 +166,9 @@ except Exception as e:
 # ===========================================================================================================================================================
 
 
-# setting up retrievers from vectorstores with custom tailormade finetuning
-def retrieve_context(question: str) -> List[Document]:
-    """
-    Retrieve context from the ensemble retriever based on the user's question.
-
-    Returns:
-        List[Document]: A list of LangChain Document objects, where each document has:
-            - page_content (str): The main text content (e.g., question title and body).
-            - metadata (dict): Structured metadata including question details, user info, tags, answers, and similarity score.
-    """
+# Split retrieval into steps for observability
+def retrieve_raw_docs(question: str) -> List[Document]:
+    """Step 1: Graph Traversal & Ensemble Retrieval"""
     try:
         # Define the common search arguments once
         common_search_kwargs = {
@@ -201,18 +199,30 @@ def retrieve_context(question: str) -> List[Document]:
             retrievers=retrievers,
         )
 
-        logger.info("Retrieving and reranking dynamic context")
-        # Wrap your ensemble retriever with the compression retriever.
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, base_retriever=ensemble_retriever
-        )
-
-        reranked_docs = compression_retriever.invoke(question)
-        logger.info(f"Retrieved {len(reranked_docs)} documents")
-        return reranked_docs
+        logger.info("Executing Graph Traversal & Retrieval...")
+        docs = ensemble_retriever.invoke(question)
+        logger.info(f"Graph Traversal Complete. Found {len(docs)} documents.")
+        return docs
     except Exception as e:
-        logger.error(f"Error retrieving context: {e}")
-        # Return empty list instead of crashing
+        logger.error(f"Error in retrieve_raw_docs: {e}")
+        return []
+
+
+def rerank_docs(inputs: Dict) -> List[Document]:
+    """Step 2: Reranking"""
+    try:
+        docs = inputs.get("docs", [])
+        question = inputs.get("question", "")
+
+        if not docs:
+            return []
+
+        logger.info(f"Reranking {len(docs)} documents...")
+        reranked = compressor.compress_documents(documents=docs, query=question)
+        logger.info(f"Reranking Complete. Kept {len(reranked)} documents.")
+        return reranked
+    except Exception as e:
+        logger.error(f"Error in rerank_docs: {e}")
         return []
 
 
@@ -290,13 +300,17 @@ def process_with_topic_analysis(input_dict: Dict) -> Dict:
         }
 
 
+retrieval_chain = RunnablePassthrough.assign(
+    docs=lambda x: RunnableLambda(retrieve_raw_docs)
+    .with_config(run_name="GraphTraversal")
+    .invoke(x["question"])
+) | RunnableLambda(rerank_docs).with_config(run_name="Reranking")
+
 # This chain is activated for GraphRAG.
 try:
     graph_rag_chain = (
         RunnablePassthrough.assign(
-            context=lambda x: format_docs_with_metadata(
-                retrieve_context(x["question"])
-            ),
+            context=retrieval_chain | format_docs_with_metadata,
             chat_history_formatted=lambda x: format_chat_history(
                 x.get("chat_history", [])
             ),
