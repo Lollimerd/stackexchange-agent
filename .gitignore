@@ -13,3 +13,4 @@ __init__.py
 !requirements.txt
 logs.py
 tests/
+.mypy_cache/
