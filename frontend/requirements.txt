@@ -10,4 +10,3 @@ pandas
 python-dotenv
 pyvis
 langchain-neo4j
-langchain-ollama
