@@ -15,11 +15,14 @@ dependencies = [
     "langchain-core>=0.1.20",
     "langchain-neo4j>=0.1.0",
     "langchain-ollama>=0.0.1",
+    "mypy>=1.19.1",
     "neo4j>=5.17.0",
     "ollama>=0.6.1",
     "pandas>=2.3.3",
     "plotly>=6.5.2",
     "pydantic>=2.6.0",
+    "pyre-check>=0.9.21",
+    "pyrefly>=0.49.0",
     "python-dotenv>=1.0.0",
     "pyvis>=0.3.2",
     "requests>=2.32.5",
@@ -30,4 +33,10 @@ dependencies = [
     "streamlit-timeline>=0.0.2",
     "torch>=2.2.0",
     "uvicorn[standard]==0.40.0",
+]
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
 ]
