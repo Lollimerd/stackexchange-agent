@@ -2,6 +2,7 @@ from langchain_core.documents import Document
 from typing import List, Any
 import json, docker, re, os, socket
 
+
 def escape_lucene_chars(text: str) -> str:
     """
     Escapes special characters in a string for safe use in a Lucene query.
@@ -9,14 +10,15 @@ def escape_lucene_chars(text: str) -> str:
     # List of special characters in Lucene syntax
     special_chars = r'([+\-&|!(){}\[\]^"~*?:\\/])'
     # Prepend each special character with a backslash
-    return re.sub(special_chars, r'\\\1', text)
+    return re.sub(special_chars, r"\\\1", text)
+
 
 # --- Dynamic Container Discovery ---
 def find_container_by_port(port: int) -> str:
     """Inspects running Docker containers to find which one is using the specified port."""
     if not port:
         return "Invalid port"
-    
+
     try:
         # Connect to the Docker daemon
         client = docker.from_env()
@@ -27,27 +29,26 @@ def find_container_by_port(port: int) -> str:
             # The .ports attribute is a dictionary like: {'7687/tcp': [{'HostIp': '0.0.0.0', 'HostPort': '7687'}]}
             port_mappings = container.ports
             for port_key, host_mappings in port_mappings.items():
-
                 # when backend is dockerised
-                if port_key.split('/')[0] == target_port:
+                if port_key.split("/")[0] == target_port:
                     return container.name
-                
+
                 # when running from bash/uvicorn
                 if host_mappings:
                     for mapping in host_mappings:
                         if mapping.get("HostPort") == str(port):
-                            return container.name # Found it!
+                            return container.name  # Found it!
         return "No matching container found"
-    
+
     except docker.errors.DockerException:
-        if os.path.exists('/.dockerenv'):
+        if os.path.exists("/.dockerenv"):
             hostname = socket.gethostname()
             return f"Self ({hostname}) - Docker socket not mounted?"
         return "Docker daemon not running or not accessible"
     except Exception as e:
         return f"An error occurred: {e}"
-    
-    
+
+
 def _format_scalar(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
@@ -55,7 +56,10 @@ def _format_scalar(value: Any) -> str:
         return "null"
     return str(value)
 
-def _format_value_readable(value: Any, indent: int = 0, max_list_items: int = 10) -> str:
+
+def _format_value_readable(
+    value: Any, indent: int = 0, max_list_items: int = 10
+) -> str:
     pad = "  " * indent
     next_pad = "  " * (indent + 1)
 
@@ -80,7 +84,9 @@ def _format_value_readable(value: Any, indent: int = 0, max_list_items: int = 10
         sliced = value[:max_list_items]
         omitted = len(value) - len(sliced)
         if all(not isinstance(x, (dict, list)) for x in sliced):
-            return f"{', '.join(_format_scalar(x) for x in sliced)}" + (f" …(+{omitted})" if omitted > 0 else "")
+            return f"{', '.join(_format_scalar(x) for x in sliced)}" + (
+                f" …(+{omitted})" if omitted > 0 else ""
+            )
         lines = []
         for item in sliced:
             if isinstance(item, (dict, list)):
@@ -106,10 +112,7 @@ def format_docs_with_metadata(docs: list[Document]) -> str:
     formatted_blocks: list[str] = []
     for idx, doc in enumerate(docs, start=1):
         # Page content (already Unicode-safe in Python 3)
-        content_section = (
-            "\n--------- CONTENT ---------\n"
-            f"{doc.page_content}"
-        )
+        content_section = f"\n--------- CONTENT ---------\n{doc.page_content}"
 
         # Metadata as readable lines
         metadata_lines: list[str] = []
@@ -122,10 +125,7 @@ def format_docs_with_metadata(docs: list[Document]) -> str:
                 metadata_lines.append(f"{key}: {_format_scalar(value)}")
         metadata_str = "\n".join(metadata_lines)
 
-        metadata_section = (
-            "\n--------- METADATA ---------\n"
-            f"{metadata_str}"
-        )
+        metadata_section = f"\n--------- METADATA ---------\n{metadata_str}"
 
         formatted_blocks.append(content_section + metadata_section)
 
