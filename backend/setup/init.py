@@ -1,13 +1,11 @@
 """Setting up ollama models, vectorstores and Neo4j Configs"""
 
-import os, json, time
+import os
 from dotenv import load_dotenv
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_neo4j import Neo4jGraph, Neo4jVector
 from langchain_neo4j.vectorstores.neo4j_vector import SearchType
-from typing_extensions import List, TypedDict
-from typing import Dict, Optional
-from langchain_core.documents import Document
+from typing import Dict
 from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 
 # ===========================================================================================================================================================
@@ -25,7 +23,7 @@ ANSWER_LLM = ChatOllama(
     model="qwen3:1.7b",
     base_url=OLLAMA_BASE_URL,
     num_ctx=40968,  # 40k context
-    num_predict=4096,  # max tokens in answer
+    num_predict=8192,  # max tokens in answer
     temperature=0.1,  # less random
     repeat_penalty=1.5,  # higher, penalise repetitions
     repeat_last_n=-1,  # look back within context to penalise penalty
@@ -44,7 +42,8 @@ EMBEDDINGS = OllamaEmbeddings(
 # reranker model
 RERANKER_MODEL = HuggingFaceCrossEncoder(
     model_name="BAAI/bge-reranker-base",
-)  # Use 'cuda' if you have a GPU available.
+    model_kwargs={"device": "cuda"},  # Use 'cuda' for GPU acceleration
+)
 
 # neo4j connection
 graph = Neo4jGraph(
@@ -57,24 +56,6 @@ graph = Neo4jGraph(
 # print(f"\nschema: {graph.schema}\n")
 
 
-# define state for application
-class GraphState(TypedDict):
-    """
-    Represents the state of our graph.
-
-    Attributes:
-        question: question
-        chat_history: chat history
-        context: list of documents
-        answer: answer
-    """
-
-    question: str
-    chat_history: List[Dict[str, str]]
-    context: List[Document]
-    answer: str
-
-
 # test embedding generation
 # sample_embedding = EMBEDDINGS.embed_query("Hello world")
 # print(f"\nSample embedding dimension: {len(sample_embedding)}")
@@ -82,6 +63,7 @@ class GraphState(TypedDict):
 # ===========================================================================================================================================================
 # Creation of vector index, vectorstores and fulltext for hybrid vector search
 # ===========================================================================================================================================================
+
 
 def create_vector_stores(graph, EMBEDDINGS, retrieval_query) -> Dict[str, Neo4jVector]:
     """

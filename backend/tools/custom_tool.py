@@ -401,6 +401,7 @@ except Exception as e:
     raise
 
 
+# define state for application
 class GraphRAGInput(BaseModel):
     """Input for the GraphRAG tool."""
 
