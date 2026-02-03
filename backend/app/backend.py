@@ -1,8 +1,6 @@
-# main.py
 import asyncio
 import json
 import logging
-import os
 
 from datetime import datetime
 from typing import AsyncGenerator, Dict, List
@@ -16,15 +14,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from setup.init import (
-    ANSWER_LLM,
-    EMBEDDINGS,
-    NEO4J_PASSWORD,
+from setup.init_config import (
+    answer_LLM,
+    embedding_model,
+    get_graph_instance,
     NEO4J_URL,
     NEO4J_USERNAME,
-    graph,
 )
-from tools.custom_tool import graph_rag_tool, graph_rag_chain
+from tools.graph_rag_tool import graph_rag_tool
+from agent.agent import agent_executor
 from utils.util import find_container_by_port
 from utils.memory import (
     add_ai_message_to_session,
@@ -37,7 +35,6 @@ from utils.memory import (
     link_session_to_user,
 )
 from utils.topic_manager import TopicManager
-from utils.util import find_container_by_port
 
 # Load environment variables
 load_dotenv()
@@ -112,7 +109,7 @@ def get_configuration():
             container_name = discovered_name
 
         return {
-            "ollama_model": ANSWER_LLM.model,
+            "ollama_model": answer_LLM().model,
             "neo4j_url": NEO4J_URL,
             "container_name": container_name,
             "neo4j_user": NEO4J_USERNAME,
@@ -155,19 +152,13 @@ def get_user_chats(user_id: str):
 def get_chat_messages(session_id: str):
     """Returns the message history for a specific session, including thoughts for AI messages."""
     try:
-        from langchain_neo4j import Neo4jGraph
-
-        graph = Neo4jGraph(
-            url=NEO4J_URL, username=NEO4J_USERNAME, password=NEO4J_PASSWORD
-        )
-
         query = """
         MATCH (s:Session {id: $session_id})-[:HAS_MESSAGE]->(m:Message)
         RETURN m.type AS role, m.content AS content, m.thought AS thought
         ORDER BY coalesce(m.created_at, m.timestamp, elementId(m)) ASC
         LIMIT 1000
         """
-        results = graph.query(query, params={"session_id": session_id})
+        results = get_graph_instance().query(query, params={"session_id": session_id})
 
         if not results:
             results = []
@@ -217,7 +208,7 @@ def delete_app_user(user_id: str):
 async def ingest_stackoverflow_data(request: IngestRequest):
     """Ingest StackOverflow data: compute embeddings and insert into Neo4j."""
     try:
-        from tools.custom_tool import import_query
+        from tools.graph_rag_tool import import_query
 
         data_items = request.data
         if not data_items:
@@ -244,7 +235,7 @@ async def ingest_stackoverflow_data(request: IngestRequest):
 
             # 2. Compute embeddings in batch
             if texts_to_embed:
-                embeddings = EMBEDDINGS.embed_documents(texts_to_embed)
+                embeddings = embedding_model().embed_documents(texts_to_embed)
 
                 # 3. Assign embeddings back
                 for i, embedding in enumerate(embeddings):
@@ -255,7 +246,7 @@ async def ingest_stackoverflow_data(request: IngestRequest):
                         items[q_idx]["answers"][a_idx]["embedding"] = embedding
 
             # 4. Insert into Neo4j
-            graph.query(import_query, {"data": items})
+            get_graph_instance().query(import_query, {"data": items})
             return len(items)
 
         count = await asyncio.to_thread(process_ingestion, data_items)
@@ -295,7 +286,7 @@ async def record_import_session(request: ImportRecordRequest):
         }
 
         # Run query in thread
-        await asyncio.to_thread(graph.query, query, params)
+        await asyncio.to_thread(get_graph_instance().query, query, params)
 
         return {"status": "success", "import_id": import_id}
     except Exception as e:
@@ -325,7 +316,7 @@ async def update_import_session(import_id: str, request: ImportRecordRequest):
         }
 
         # Run query in thread
-        await asyncio.to_thread(graph.query, query, params)
+        await asyncio.to_thread(get_graph_instance().query, query, params)
 
         return {"status": "success", "message": f"Import session {import_id} updated"}
     except Exception as e:
@@ -343,7 +334,9 @@ async def delete_import_session(import_id: str):
         """
 
         # Run query in thread
-        await asyncio.to_thread(graph.query, query, {"import_id": import_id})
+        await asyncio.to_thread(
+            get_graph_instance().query, query, {"import_id": import_id}
+        )
 
         return {"status": "success", "message": f"Import session {import_id} deleted"}
     except Exception as e:
@@ -584,7 +577,37 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
     )
 
 
+@app.post("/agent/ask")
+async def agent_ask(request: QueryRequest):
+    """
+    Endpoint to query the new LangChain Agent.
+    """
+    try:
+        # Construct input for the agent
+        # We need to format chat history if available, but for now we pass empty
+        # The agent prompt expects "chat_history" and "input"
+
+        # Simple history retrieval (same as existing endpoint)
+        chat_history_obj = get_chat_history(request.session_id)
+        messages = chat_history_obj.messages if chat_history_obj else []
+
+        # We need to convert Neo4j/LangChain messages to the format expected by ChatPromptTemplate
+        # But ChatPromptTemplate with "placeholder" handles list of BaseMessages nicely.
+        # Neo4jChatMessageHistory.messages returns list of BaseMessages.
+
+        input_data = {"input": request.question, "chat_history": messages}
+
+        result = await agent_executor.ainvoke(input_data)
+
+        # Result will contain "output" which is the final string answer
+        return {"status": "success", "answer": result.get("output", "")}
+
+    except Exception as e:
+        logger.error(f"Error in agent execution: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # uvicorn main:app --reload
 if __name__ == "__main__":
     # Run the app with Uvicorn, specifying host and port here
-    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")

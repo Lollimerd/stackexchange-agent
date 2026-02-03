@@ -1,7 +1,6 @@
 import logging
 import numpy as np
-from datetime import datetime
-from setup.init import EMBEDDINGS
+from setup.init_config import embedding_model
 from utils.memory import get_chat_history, get_graph_instance
 
 logger = logging.getLogger(__name__)
@@ -40,58 +39,22 @@ class TopicManager:
         Returns a dict with similarity_score, is_continuation, and recommendation.
         """
         try:
-            if not session_topic:
-                return {
-                    "similarity_score": 1.0,
-                    "is_continuation": True,
-                    "confidence_level": "high",
-                    "recommendation": "First message in session",
-                }
-
-            # Embed both question and topic
-            question_embedding = EMBEDDINGS.embed_query(question)
-            topic_embedding = EMBEDDINGS.embed_query(session_topic)
-
-            # Calculate cosine similarity
-            q_vec = np.array(question_embedding)
-            t_vec = np.array(topic_embedding)
-
-            similarity_score = float(
-                np.dot(q_vec, t_vec)
-                / (np.linalg.norm(q_vec) * np.linalg.norm(t_vec) + 1e-10)
-            )
-
-            # Determine confidence level
-            if similarity_score > 0.75:
-                confidence_level = "high"
-                recommendation = "CONTINUATION: User is asking a follow-up on the same topic. Build upon previous context."
-                is_continuation = True
-            elif similarity_score > 0.55:
-                confidence_level = "medium"
-                recommendation = "POSSIBLE_CONTINUATION: User may be asking a tangential question. Acknowledge the current topic but allow for context shift."
-                is_continuation = True
-            else:
-                confidence_level = "low"
-                recommendation = "NEW_TOPIC: User appears to be switching to a new topic. You can acknowledge this shift gracefully."
-                is_continuation = False
-
-            logger.info(
-                f"Topic similarity score: {similarity_score:.2f} ({confidence_level})"
-            )
+            # FORCE CONTINUITY: Always treat as continuation of the session topic
+            # This logic overrides any semantic similarity check.
 
             return {
-                "similarity_score": similarity_score,
-                "is_continuation": is_continuation,
-                "confidence_level": confidence_level,
-                "recommendation": recommendation,
+                "similarity_score": 1.0,
+                "is_continuation": True,
+                "confidence_level": "high",
+                "recommendation": "CONTINUATION: Forced session continuity enabled. Treating as follow-up.",
             }
         except Exception as e:
             logger.error(f"Error calculating topic similarity: {e}")
             return {
-                "similarity_score": 0.5,
+                "similarity_score": 1.0,
                 "is_continuation": True,
-                "confidence_level": "low",
-                "recommendation": "Unable to determine similarity. Proceed with caution.",
+                "confidence_level": "high",
+                "recommendation": "Error handling forced to continuation.",
             }
 
     @staticmethod
@@ -111,7 +74,7 @@ class TopicManager:
                 return []
 
             # Embed the question
-            question_embedding = np.array(EMBEDDINGS.embed_query(question))
+            question_embedding = np.array(embedding_model().embed_query(question))
 
             # Score all messages based on relevance to current question
             scored_messages = []
@@ -120,7 +83,7 @@ class TopicManager:
                 if not msg_content:
                     continue
 
-                msg_embedding = np.array(EMBEDDINGS.embed_query(msg_content))
+                msg_embedding = np.array(embedding_model().embed_query(msg_content))
                 similarity = float(
                     np.dot(question_embedding, msg_embedding)
                     / (
@@ -154,32 +117,9 @@ class TopicManager:
     ) -> bool:
         """
         Updates the session topic if the user has clearly switched to a new topic.
-        Only updates if similarity is very low (< 0.4).
-        """
-        try:
-            graph = get_graph_instance()
 
-            # Only update if very different from current topic
-            if similarity_data["similarity_score"] < 0.4:
-                query = """
-                MATCH (s:Session {id: $session_id})
-                SET s.topic = $new_topic,
-                    s.topic_changed_at = $timestamp,
-                    s.previous_topic = coalesce(s.topic, '')
-                """
-                graph.query(
-                    query,
-                    params={
-                        "session_id": session_id,
-                        "new_topic": new_question,
-                        "timestamp": datetime.now().isoformat(),
-                    },
-                )
-                logger.info(
-                    f"Session {session_id} topic updated to: {new_question[:50]}..."
-                )
-                return True
-            return False
-        except Exception as e:
-            logger.error(f"Error updating session topic: {e}")
-            return False
+        DISABLED: We now enforce strict session continuity based on the first question.
+        """
+        # We explicitly do NOT want to update the topic, ever.
+        # The session topic should remain fixed to the first question.
+        return False

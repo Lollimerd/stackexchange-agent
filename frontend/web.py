@@ -262,7 +262,7 @@ else:
     # --- UI Elements ---
     st.title("🧠 StackExchange Agent")
     st.header(
-        """**:violet-badge[:material/star: OSU GPT]** **:blue-badge[:material/star: Ollama]** **:green-badge[:material/Verified: Mixture of Experts (MOE) model -> Qwen3]** **:blue-badge[:material/component_exchange: GraphRAG]**"""
+        """**:violet-badge[:material/star: PRIVATE-RAG]** **:blue-badge[:material/star: Ollama]** **:green-badge[:material/Verified: Mixture of Experts (MOE) model -> Qwen3]** **:blue-badge[:material/component_exchange: GraphRAG]**"""
     )
     st.markdown("""Ask a question to get a real-time analysis from the knowledge graph. Feel free to ask the bot whatever your queries may be.
                 Be specific in what you are asking, create table, generate graph of asking for data within a specified duration of time.

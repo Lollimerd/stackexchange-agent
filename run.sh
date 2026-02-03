@@ -6,7 +6,7 @@ echo "venv activated"
 
 # Script to run FastAPI backend and Streamlit frontend simultaneously
 # Define the commands
-FASTAPI_CMD="uvicorn app.backend:app --host=0.0.0.0 --port=8000 --reload"  # Replace with your FastAPI file path
+FASTAPI_CMD="uvicorn app.backend:app --host=0.0.0.0 --port=8001 --reload"  # Replace with your FastAPI file path
 STREAMLIT_CMD="streamlit run web.py --server.address=0.0.0.0"  # Replace with your Streamlit file path
 
 # Function to kill both processes when script exits
