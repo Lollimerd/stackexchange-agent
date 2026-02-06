@@ -170,7 +170,7 @@ RETURN
   } AS metadata,
   score
 ORDER BY score DESC
-LIMIT 100
+LIMIT 50
 """
 
 # Create vector stores with error handling
@@ -211,7 +211,7 @@ def retrieve_raw_docs(question: str) -> List[Document]:
     try:
         # Define the common search arguments once
         common_search_kwargs = {
-            "k": 100,  # Increased initial pool: wider net across all entity types
+            "k": 50,  # Increased initial pool: wider net across all entity types
             "score_threshold": 0.9,  # Slightly lowered to ensure we catch cross-domain links
             "fetch_k": 10000,  # Number of candidates for the initial vector search
             "lambda_mult": 0.5,  # Balanced weight between Vector and Full-text
@@ -352,6 +352,7 @@ class GraphRAGTool(BaseTool):
     description: str = "Retrieves information from the graph database to answer questions with topic continuity analysis."
     args_schema: Type[BaseModel] = GraphRAGInput
 
+    # synchronous execution
     def _run(
         self,
         question: str,
@@ -372,6 +373,7 @@ class GraphRAGTool(BaseTool):
         )
         return str(result.content)
 
+    # asynchronous execution
     async def _arun(
         self,
         question: str,

@@ -21,7 +21,7 @@ from utils.util import (
     delete_user_api,
     delete_chat_api,
     BACKEND_URL,
-    FASTAPI_URL,
+    AGENT_URL,
 )
 
 # Setup logging
@@ -40,7 +40,6 @@ st.set_page_config(
         "About": "# This is a header. This is an *extremely* cool app!",
     },
 )
-
 
 # --- Initialize Session State AND Sync with Backend ---
 if "chats" not in st.session_state:
@@ -211,7 +210,7 @@ with st.sidebar:
         chat_data = st.session_state.chats[chat_id]
 
         # Use columns to place chat button and delete button on the same line
-        col1, col2 = chat_container.columns([0.2, 0.8])
+        col1, col2 = chat_container.columns([0.3, 0.7])
 
         with col1:
             # Button to delete the chat
@@ -260,14 +259,35 @@ if active_chat is None:
     st.error("No active chat available")
 else:
     # --- UI Elements ---
-    st.title("🧠 StackExchange Agent")
-    st.header(
-        """**:violet-badge[:material/star: PRIVATE-RAG]** **:blue-badge[:material/star: Ollama]** **:green-badge[:material/Verified: Mixture of Experts (MOE) model -> Qwen3]** **:blue-badge[:material/component_exchange: GraphRAG]**"""
+    st.markdown(
+        """
+        <div class="glass-card" style="text-align: center; padding: 40px 20px;">
+            <h1 style="font-size: 3.5rem; background: linear-gradient(to right, #60A5FA, #A78BFA); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px;">
+                StackExchange Agent
+            </h1>
+            <div style="display: flex; justify-content: center; gap: 10px; flex-wrap: wrap; margin-bottom: 20px;">
+                <span style="background: rgba(124, 58, 237, 0.2); border: 1px solid rgba(124, 58, 237, 0.5); padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; color: #E9D5FF;">
+                    ★ PRIVATE-RAG
+                </span>
+                <span style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; color: #BFDBFE;">
+                    ★ Ollama
+                </span>
+                <span style="background: rgba(16, 185, 129, 0.2); border: 1px solid rgba(16, 185, 129, 0.5); padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; color: #D1FAE5;">
+                     Verified: MOE -> Qwen3
+                </span>
+                <span style="background: rgba(59, 130, 246, 0.2); border: 1px solid rgba(59, 130, 246, 0.5); padding: 5px 15px; border-radius: 20px; font-size: 0.8rem; color: #BFDBFE;">
+                    ☍ GraphRAG
+                </span>
+            </div>
+            <p style="font-size: 1.1rem; color: #94A3B8; max-width: 800px; margin: 0 auto;">
+                Ask a question to get a real-time analysis from the knowledge graph. 
+                Generate tables, graphs, and inferential analysis from your data.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
-    st.markdown("""Ask a question to get a real-time analysis from the knowledge graph. Feel free to ask the bot whatever your queries may be.
-                Be specific in what you are asking, create table, generate graph of asking for data within a specified duration of time.
-                Inferences, analysis and predictions are supported too :)
-    """)
+
     st.subheader(body=f"Welcome back, {st.session_state.get('user_name', 'Guest')}")
 
     # When displaying past messages from the ACTIVE chat:
@@ -339,19 +359,21 @@ else:
                         "🚀 Initializing Agent...", expanded=True
                     ) as status_box:
                         try:
+                            # prepare payload
+                            session_id = st.session_state.active_chat_id
+                            user_id = st.session_state.get("user_name", "test_user")
+                            payload = {
+                                "question": prompt,
+                                "session_id": session_id,
+                                "user_id": user_id,
+                            }
                             timeout = httpx.Timeout(300, read=300)
                             with httpx.Client(timeout=timeout) as client:
                                 with connect_sse(
                                     client,
                                     "POST",
-                                    FASTAPI_URL,
-                                    json={
-                                        "question": prompt,
-                                        "session_id": st.session_state.active_chat_id,
-                                        "user_id": st.session_state.get(
-                                            "user_name", ""
-                                        ),
-                                    },
+                                    AGENT_URL,
+                                    json=payload,
                                 ) as event_source:
                                     for sse in event_source.iter_sse():
                                         if sse.data:
@@ -421,7 +443,7 @@ else:
 
                                             except json.JSONDecodeError as e:
                                                 logger.error(
-                                                    f"Error decoding JSON: {sse.data}"
+                                                    f"Error decoding JSON: {sse.data}, \n{e}"
                                                 )
                                                 continue
 

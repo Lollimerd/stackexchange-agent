@@ -1,5 +1,5 @@
 import streamlit as st
-import hashlib
+
 import json
 import logging
 import os
@@ -15,7 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 # --- API Configuration ---
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8001")
-FASTAPI_URL = f"{BACKEND_URL}/stream-ask"
+
 CHATS_URL = f"{BACKEND_URL}/api/v1/user"  # /{user_id}/chats
 CHAT_HISTORY_URL = f"{BACKEND_URL}/api/v1/chat"
 USERS_URL = f"{BACKEND_URL}/api/v1/users"

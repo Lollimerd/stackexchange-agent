@@ -80,6 +80,7 @@ services:
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - ~/.cache/huggingface:/home/appuser/.cache:ro
     networks:
       - app-network
     depends_on:
