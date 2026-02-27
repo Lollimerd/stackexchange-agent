@@ -1,6 +1,6 @@
 # Web Framework
 fastapi
-uvicorn
+uvicorn[standard] # includes uvloop + httptools for better async performance
 pydantic
 
 # LangChain Ecosystem
@@ -10,10 +10,6 @@ langchain-community
 langchain-neo4j
 langchain-ollama
 
-# AI/ML & Embeddings
-sentence-transformers
-torch  # Explicitly stating torch is good for reproducibility with Rerankers
-
 # Database & Graph
 neo4j
 ollama
@@ -21,6 +17,8 @@ ollama
 # AI/ML & Embeddings
 sentence-transformers
 torch  # Explicitly stating torch is good for reproducibility with Rerankers
+optimum[onnxruntime-gpu] # optimized ONNX inference with GPU
+tensorrt-cu12 # TensorRT for CUDA 12.x (matches Docker base image)
 
 # Utilities
 python-dotenv
