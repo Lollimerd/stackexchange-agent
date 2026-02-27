@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # --- Page Configuration ---
 st.set_page_config(
-    page_title="Custom GPT",
+    page_title="StackExchange Agent",
     page_icon="🧠",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -340,7 +340,7 @@ else:
             if active_chat["title"] == "New Chat" or active_chat["title"].startswith(
                 "Chat "
             ):
-                active_chat["title"] = prompt[:10] + "..."  # Truncate for display
+                active_chat["title"] = prompt[:15] + "..."  # Truncate for display
 
             with st.chat_message(name=st.session_state.get("user_name", "User")):
                 st.markdown(prompt)
