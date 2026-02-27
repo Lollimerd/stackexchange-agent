@@ -4,6 +4,13 @@
 source .venv/bin/activate
 echo "venv activated"
 
+# Capture project root before any cd commands
+PROJECT_ROOT="$(pwd)"
+
+# Expose TensorRT libs so ONNX Runtime can find libnvinfer.so.10
+# Must be absolute path — relative paths break after `cd backend` below
+export LD_LIBRARY_PATH="${PROJECT_ROOT}/.venv/lib/python3.13/site-packages/tensorrt_libs:${LD_LIBRARY_PATH}"
+
 # Script to run FastAPI backend and Streamlit frontend simultaneously
 # Define the commands
 FASTAPI_CMD="uvicorn app.backend:app --host=0.0.0.0 --port=8001 --reload"  # Replace with your FastAPI file path
