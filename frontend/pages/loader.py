@@ -1,9 +1,8 @@
-import os, time, requests
+import os, time, requests, gc
 from dotenv import load_dotenv
 import streamlit as st
 from streamlit.logger import get_logger
 from utils.util import BACKEND_URL
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = get_logger(__name__)
 
@@ -25,14 +24,13 @@ so_api_base_url = "https://api.stackexchange.com/2.3/search/advanced"
 def load_so_data(tag: str, page: int, site: str) -> dict:
     """
     Load Stack Overflow data and handle potential errors gracefully.
-    This function is now designed to run in a background thread and should NOT call any st.* functions.
-    It returns a dictionary indicating the result.
+    Returns a dictionary indicating the result.
     """
     try:
         api_key = os.getenv("STACKEXCHANGE_API_KEY")
         key_param = f"&key={api_key}" if api_key else ""
         site = "stackoverflow"
-        parameters = f"""?pagesize=100&page={page}&order=desc&sort=creation&answers=1&tagged={tag}&site={site}&filter=!*236eb_eL9rai)MOSNZ-6D3Q6ZKb0buI*IVotWaTb{key_param}"""
+        parameters = f"""?pagesize=25&page={page}&order=desc&sort=creation&answers=1&tagged={tag}&site={site}&filter=!*236eb_eL9rai)MOSNZ-6D3Q6ZKb0buI*IVotWaTb{key_param}"""
 
         # Retry logic for network flakiness
         max_retries = 3
@@ -139,7 +137,7 @@ def get_pages():
     col1, col2 = st.columns(2)
     with col1:
         num_pages = st.number_input(
-            "Number of pages (100 questions per page)", step=1, min_value=1
+            "Number of pages (25 questions per page)", step=1, min_value=1
         )
     with col2:
         start_page = st.number_input("Start page", step=1, min_value=1)
@@ -166,25 +164,18 @@ def render_page():
             completed_tasks = 0
             total_imported_count = 0
 
-            with ThreadPoolExecutor(max_workers=4) as executor:
-                futures = [
-                    executor.submit(load_so_data, tag, start_page + i, site)
-                    for tag in tags_to_import
-                    for i in range(num_pages)
-                ]
-
-                for future in as_completed(futures):
-                    time.sleep(0.5)
+            # Sequential processing to minimize memory usage
+            for tag in tags_to_import:
+                for i in range(num_pages):
+                    result = load_so_data(tag, start_page + i, site)
                     completed_tasks += 1
-                    result = future.result()
-
                     progress = (completed_tasks / tasks_to_complete) * 100
 
                     with info_placeholder:
                         if result["status"] == "success":
                             total_imported_count += result["count"]
                             st.info(
-                                f"({progress:.2f}%) ✅ Success: Imported page {result['page']} for tag '{result['tag']}' ({result['count']} items per page)."
+                                f"({progress:.2f}%) ✅ Success: Imported page {result['page']} for tag '{result['tag']}' ({result['count']} items)."
                             )
                         elif result["status"] == "empty":
                             st.info(
@@ -192,10 +183,14 @@ def render_page():
                             )
                     with error_placeholder:
                         if result["status"] == "error":
-                            # Log the error to the UI without stopping
                             st.error(
                                 f"({progress:.2f}%) ❌ Failed: Page {result['page']} for tag '{result['tag']}'. Reason: {result['error']}"
                             )
+
+                    # Free memory between pages
+                    del result
+                    gc.collect()
+                    time.sleep(0.5)
 
             st.success(
                 f"Import complete! Successfully imported {total_imported_count} questions.",

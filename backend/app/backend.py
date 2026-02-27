@@ -1,4 +1,5 @@
 import asyncio
+import gc
 import json
 import logging
 import uuid
@@ -214,39 +215,57 @@ async def ingest_stackoverflow_data(request: IngestRequest):
             return {"status": "skipped", "message": "No data items to ingest."}
 
         # Use a separate thread for the heavy lifting (embeddings + DB)
+        # Memory-safe: micro-batch embeddings and chunked Neo4j writes
+        EMBED_BATCH_SIZE = 10  # texts per embedding call
+        WRITE_BATCH_SIZE = 10  # questions per Neo4j transaction
+
         def process_ingestion(items):
+            embedder = embedding_model()
+            graph = get_graph_instance()
+
             # 1. Prepare texts for batch embedding
             texts_to_embed = []
-            map_to_object = []  # List of tuples/dicts to map back: (type, parent_idx, answer_idx)
+            map_to_object = []  # (type, parent_idx, answer_idx)
 
             for q_idx, q in enumerate(items):
-                # Question text
                 q_text = q.get("title", "") + "\n" + q.get("body_markdown", "")
                 texts_to_embed.append(q_text)
                 map_to_object.append(("question", q_idx, -1))
 
-                # Answer texts
-                # Note: Original code used question_text + answer body for answer embedding
                 for a_idx, a in enumerate(q.get("answers", [])):
                     a_text = q_text + "\n" + a.get("body_markdown", "")
                     texts_to_embed.append(a_text)
                     map_to_object.append(("answer", q_idx, a_idx))
 
-            # 2. Compute embeddings in batch
+            # 2. Compute embeddings in micro-batches to limit memory
             if texts_to_embed:
-                embeddings = embedding_model().embed_documents(texts_to_embed)
+                all_embeddings = []
+                for i in range(0, len(texts_to_embed), EMBED_BATCH_SIZE):
+                    batch = texts_to_embed[i : i + EMBED_BATCH_SIZE]
+                    batch_embeddings = embedder.embed_documents(batch)
+                    all_embeddings.extend(batch_embeddings)
+                    del batch, batch_embeddings
 
                 # 3. Assign embeddings back
-                for i, embedding in enumerate(embeddings):
+                for i, embedding in enumerate(all_embeddings):
                     obj_type, q_idx, a_idx = map_to_object[i]
                     if obj_type == "question":
                         items[q_idx]["embedding"] = embedding
                     elif obj_type == "answer":
                         items[q_idx]["answers"][a_idx]["embedding"] = embedding
 
-            # 4. Insert into Neo4j
-            get_graph_instance().query(import_query, {"data": items})
-            return len(items)
+                del all_embeddings, texts_to_embed, map_to_object
+
+            # 4. Insert into Neo4j in small chunks
+            for i in range(0, len(items), WRITE_BATCH_SIZE):
+                chunk = items[i : i + WRITE_BATCH_SIZE]
+                graph.query(import_query, {"data": chunk})
+                del chunk
+
+            count = len(items)
+            del items
+            gc.collect()
+            return count
 
         count = await asyncio.to_thread(process_ingestion, data_items)
 
