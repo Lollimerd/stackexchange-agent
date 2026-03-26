@@ -2,10 +2,13 @@
 Mermaid Validation Middleware
 ------------------------------
 Intercepts agent responses containing Mermaid code blocks, validates syntax
-server-side, and prompts the model to regenerate the diagram if errors are found.
-The middleware uses the `aafter_model` hook to inspect the latest AI message,
-extract Mermaid blocks, run lightweight regex-based validation, and inject a
-correction HumanMessage + `jump_to: "model"` to trigger a retry loop.
+server-side, and **directly rewrites** broken diagram(s) in the AI message
+content using rule-based auto-correction.
+
+Unlike the previous approach, this middleware does NOT bounce back to the
+model (no ``jump_to: "model"``). The LLM is only called once per user
+question. The middleware applies deterministic fixes (quoting unquoted labels,
+stripping bad node-ID chars, etc.) and patches the last AI message in-place.
 """
 
 from __future__ import annotations
@@ -14,7 +17,7 @@ import logging
 import re
 from typing import Any
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage
 from langchain.agents.middleware.types import AgentMiddleware, AgentState
 
 logger = logging.getLogger(__name__)
@@ -62,20 +65,23 @@ _RESERVED_WORDS = {
     "direction",
 }
 
-# Default max retries to prevent infinite loops
-_DEFAULT_MAX_RETRIES = 2
-
-# State key used to track how many times the middleware has already retried
-_RETRY_COUNT_KEY = "mermaid_retry_count"
-
 
 # ---------------------------------------------------------------------------
 # Validation helpers
 # ---------------------------------------------------------------------------
-def _extract_mermaid_blocks(text: str) -> list[str]:
-    """Extract all ```mermaid ... ``` code blocks from *text*."""
-    pattern = r"```mermaid\s+(.*?)\s*```"
-    return re.findall(pattern, text, flags=re.DOTALL | re.IGNORECASE)
+def _extract_mermaid_blocks(text: str) -> list[tuple[int, int, str]]:
+    """
+    Find all ```mermaid ... ``` blocks in *text*.
+
+    Returns a list of (start_index, end_index, block_content) tuples so the
+    caller can replace them by position without regex on the full content.
+    """
+    results = []
+    for m in re.finditer(
+        r"```mermaid\s+(.*?)\s*```", text, flags=re.DOTALL | re.IGNORECASE
+    ):
+        results.append((m.start(), m.end(), m.group(1)))
+    return results
 
 
 def _validate_mermaid_block(code: str) -> list[str]:
@@ -143,9 +149,6 @@ def _validate_mermaid_block(code: str) -> list[str]:
     # 4. Spaces / hyphens / special chars in node IDs (flowchart/graph)
     # -----------------------------------------------------------------
     if first_token in {"graph", "flowchart"}:
-        # Node ID pattern: word before [ or { or ( or >
-        # A valid ID should be purely alphanumeric (no spaces, hyphens allowed
-        # only inside quoted strings, but not in bare IDs).
         bad_id_pattern = re.compile(
             r"\b([A-Za-z0-9_]+(?:[\s\-][A-Za-z0-9_]+)+)\s*[\[\({>]"
         )
@@ -161,7 +164,6 @@ def _validate_mermaid_block(code: str) -> list[str]:
     # 5. Check that descriptive node labels are wrapped in double-quotes
     #    e.g.  NodeA[This is bad]  vs  NodeA["This is good"]
     # -----------------------------------------------------------------
-    # Only enforce for flowchart/graph diagrams
     if first_token in {"graph", "flowchart"}:
         unquoted_label_pattern = re.compile(
             r'\[(?!")([^\]]*\s[^\]]*)\]'  # [text with spaces] but NOT ["..."]
@@ -181,22 +183,156 @@ def _validate_mermaid_block(code: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Auto-fix helpers  (deterministic, no model call)
+# ---------------------------------------------------------------------------
+def _fix_unquoted_labels(code: str) -> str:
+    """
+    Wrap unquoted multi-word node labels in double-quotes.
+    e.g.  NodeA[My Label]  ->  NodeA["My Label"]
+          NodeA(My Label)  ->  NodeA("My Label")
+    Leaves already-quoted strings alone.
+    """
+
+    def _quote_bracket(m: re.Match) -> str:
+        open_b, inner, close_b = m.group(1), m.group(2), m.group(3)
+        close_map = {"[": "]", "(": ")", "{": "}"}
+        expected_close = close_map.get(open_b, close_b)
+        return f'{open_b}"{inner}"{expected_close}'
+
+    # Match [text with spaces] / (text with spaces) / {text with spaces}
+    # but not already-quoted ["..."] / ("...") / {"..."}
+    pattern = re.compile(r'([\[\({])(?!")([^\]\)\}"]+\s[^\]\)\}"]*?)(?<!\")([\]\)}])')
+    return pattern.sub(_quote_bracket, code)
+
+
+def _fix_reserved_node_ids(code: str) -> str:
+    """
+    Prefix reserved words used as bare node IDs with an underscore.
+    e.g.  end[End Process]  ->  _end[End Process]
+    Only applies when the reserved word appears at the start of a line
+    (after optional whitespace) or right after a connection arrow.
+    """
+    reserved_pattern = re.compile(
+        r"(?<![A-Za-z0-9_])("
+        + "|".join(re.escape(w) for w in _RESERVED_WORDS)
+        + r")(\s*[\[\({>])",
+        re.IGNORECASE,
+    )
+
+    def _replace(m: re.Match) -> str:
+        return f"_{m.group(1)}{m.group(2)}"
+
+    lines = code.splitlines()
+    fixed = []
+    if not lines:
+        return code
+
+    # Skip the first line (diagram type declaration)
+    fixed.append(lines[0])
+    for line in lines[1:]:
+        if line.strip().startswith("%%"):
+            fixed.append(line)
+            continue
+        fixed.append(reserved_pattern.sub(_replace, line))
+    return "\n".join(fixed)
+
+
+def _fix_node_ids_with_spaces(code: str) -> str:
+    """
+    Remove spaces/hyphens inside bare node IDs by camel-casing them.
+    e.g.  My Node[...] -> MyNode[...]
+          my-node[...] -> myNode[...]
+    Only applies to flowchart/graph diagrams.
+    """
+
+    def _camel(m: re.Match) -> str:
+        parts = re.split(r"[\s\-]+", m.group(1))
+        camel = parts[0] + "".join(p.capitalize() for p in parts[1:])
+        return f"{camel}{m.group(2)}"
+
+    bad_id_pattern = re.compile(
+        r"\b([A-Za-z0-9_]+(?:[\s\-][A-Za-z0-9_]+)+)(\s*[\[\({>])"
+    )
+    lines = code.splitlines()
+    if not lines:
+        return code
+
+    fixed = [lines[0]]
+    for line in lines[1:]:
+        fixed.append(bad_id_pattern.sub(_camel, line))
+    return "\n".join(fixed)
+
+
+def _autofix_mermaid_block(code: str) -> str:
+    """
+    Apply all deterministic fixes to a single Mermaid block (without the
+    surrounding ``` fences).  Order matters: fix IDs before labels.
+    """
+    lines = [ln.strip() for ln in code.strip().splitlines() if ln.strip()]
+    if not lines:
+        return code
+
+    first_token = lines[0].split()[0].lower().rstrip(":")
+    is_graph = first_token in {"graph", "flowchart"}
+
+    fixed = code
+
+    # Fix 1: reserved word node IDs
+    fixed = _fix_reserved_node_ids(fixed)
+
+    # Fix 2: node IDs with spaces/hyphens (graph/flowchart only)
+    if is_graph:
+        fixed = _fix_node_ids_with_spaces(fixed)
+
+    # Fix 3: unquoted multi-word labels (graph/flowchart only)
+    if is_graph:
+        fixed = _fix_unquoted_labels(fixed)
+
+    return fixed
+
+
+def _apply_fixes_to_content(content: str) -> tuple[str, int]:
+    """
+    Find every Mermaid block in *content*, validate it, and — if it has
+    errors — auto-fix it in-place.
+
+    Returns ``(patched_content, num_fixed)`` where *num_fixed* is the number
+    of blocks that were modified.
+    """
+    blocks = _extract_mermaid_blocks(content)
+    if not blocks:
+        return content, 0
+
+    num_fixed = 0
+    # Iterate in reverse so that index offsets stay valid after replacement
+    for start, end, block_code in reversed(blocks):
+        errors = _validate_mermaid_block(block_code)
+        if not errors:
+            continue
+
+        fixed_code = _autofix_mermaid_block(block_code)
+        new_fence = f"```mermaid\n{fixed_code}\n```"
+        content = content[:start] + new_fence + content[end:]
+        num_fixed += 1
+
+    return content, num_fixed
+
+
+# ---------------------------------------------------------------------------
 # Middleware class
 # ---------------------------------------------------------------------------
 class MermaidValidationMiddleware(AgentMiddleware):
     """
-    Validates Mermaid diagram syntax in every AI response and prompts the
-    model to regenerate if errors are found.
+    Validates Mermaid diagram syntax in every AI response and **directly
+    patches** the AI message content with auto-corrected diagrams.
+
+    No secondary model call is made — the LLM is invoked exactly once per
+    user question regardless of diagram quality.
 
     Parameters
     ----------
-    max_retries:
-        Maximum number of regeneration attempts before the middleware gives
-        up and passes the (possibly broken) response through.  Defaults to 2.
+    (none – kept signature compatible with the previous class)
     """
-
-    def __init__(self, max_retries: int = _DEFAULT_MAX_RETRIES) -> None:
-        self.max_retries = max_retries
 
     # ------------------------------------------------------------------
     # Async hook – runs after the model produces a response
@@ -208,9 +344,8 @@ class MermaidValidationMiddleware(AgentMiddleware):
         """
         Inspect the latest AI message for Mermaid blocks.
 
-        If any block contains syntax errors AND the retry budget has not been
-        exhausted, inject a correction HumanMessage and return
-        ``jump_to="model"`` so the agent loops back to the model node.
+        If any block contains syntax errors, attempt to auto-fix them and
+        replace the message content in-place.  Never jumps back to the model.
         """
         messages = state.get("messages", [])
         if not messages:
@@ -227,61 +362,30 @@ class MermaidValidationMiddleware(AgentMiddleware):
         if not content:
             return None
 
-        # Extract Mermaid blocks
-        blocks = _extract_mermaid_blocks(content)
-        if not blocks:
-            return None  # No Mermaid diagram – nothing to validate
+        # Quick check: does it even contain a Mermaid block?
+        if "```mermaid" not in content.lower():
+            return None
 
-        # Collect all errors across all blocks
-        all_errors: list[str] = []
-        for idx, block in enumerate(blocks, start=1):
-            block_errors = _validate_mermaid_block(block)
-            if block_errors:
-                prefix = f"[Diagram {idx}] " if len(blocks) > 1 else ""
-                all_errors.extend(f"{prefix}{err}" for err in block_errors)
+        patched_content, num_fixed = _apply_fixes_to_content(content)
 
-        if not all_errors:
+        if num_fixed == 0:
             logger.info("MermaidValidationMiddleware: all Mermaid blocks are valid.")
             return None
 
-        # Check retry budget
-        retry_count: int = state.get(_RETRY_COUNT_KEY, 0)
-        if retry_count >= self.max_retries:
-            logger.warning(
-                "MermaidValidationMiddleware: max retries (%d) reached, "
-                "passing through response with %d Mermaid error(s).",
-                self.max_retries,
-                len(all_errors),
-            )
-            return None  # Give up – let the broken diagram through
-
-        error_summary = "\n".join(f"  - {e}" for e in all_errors)
-        correction_prompt = (
-            "[SYSTEM: Mermaid Diagram Validation Failed]\n"
-            "The Mermaid diagram(s) in your previous response contain syntax "
-            "errors that will prevent them from rendering correctly:\n"
-            f"{error_summary}\n\n"
-            "Please regenerate the diagram(s) fixing the above issues. "
-            "Remember:\n"
-            "  • Node IDs must be single alphanumeric words (no spaces/hyphens).\n"
-            '  • Wrap multi-word node labels in double-quotes: ["My Label"].\n'
-            "  • Do NOT use reserved words (graph, subgraph, end, style, "
-            "classDef) as node IDs.\n"
-            "  • Ensure every opening bracket has a matching closing bracket.\n"
-            "  • Start the diagram with a valid type: flowchart, "
-            "sequenceDiagram, classDiagram, etc."
-        )
-
         logger.info(
-            "MermaidValidationMiddleware: found %d error(s) (retry %d/%d), "
-            "injecting correction prompt.",
-            len(all_errors),
-            retry_count + 1,
-            self.max_retries,
+            "MermaidValidationMiddleware: auto-fixed %d Mermaid block(s) in-place.",
+            num_fixed,
         )
 
+        # Build a patched copy of the latest message preserving all metadata
+        patched_message = AIMessage(
+            content=patched_content,
+            additional_kwargs=getattr(latest, "additional_kwargs", {}),
+            response_metadata=getattr(latest, "response_metadata", {}),
+            id=getattr(latest, "id", None),
+        )
+
+        # Return updated messages list with the patched final message
         return {
-            "messages": [HumanMessage(content=correction_prompt)],
-            _RETRY_COUNT_KEY: retry_count + 1,
-            "jump_to": "model",
+            "messages": messages[:-1] + [patched_message],
         }
