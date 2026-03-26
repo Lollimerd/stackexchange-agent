@@ -38,10 +38,11 @@ def answer_LLM():
 
 
 # embedding model — singleton to avoid reloading on every call
+# jina/jina-embeddings-v2-base-en:latest
 @lru_cache(maxsize=1)
 def embedding_model():
     return OllamaEmbeddings(
-        model="jina/jina-embeddings-v2-base-en:latest",
+        model="snowflake-arctic-embed2",
         base_url=OLLAMA_BASE_URL,
         num_ctx=8192,  # 8k context
         num_thread=16,
@@ -55,7 +56,6 @@ def reranker_model():
         model_name="BAAI/bge-reranker-base",
         model_kwargs={
             "device": "cuda",  # Use 'cuda' for GPU acceleration
-            "backend": "onnx",
         },
     )
 
