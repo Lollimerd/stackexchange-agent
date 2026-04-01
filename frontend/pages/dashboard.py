@@ -1,9 +1,7 @@
-import os
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from dotenv import load_dotenv
-from langchain_neo4j import Neo4jGraph
+
 from utils.util import (
     get_database_summary,
     get_import_history,
@@ -24,20 +22,6 @@ st.set_page_config(
     },
 )
 
-# Load environment variables
-load_dotenv()
-
-# Neo4j connection
-url = os.getenv("NEO4J_URL")
-username = os.getenv("NEO4J_USER")
-password = os.getenv("NEO4J_PASS")
-
-neo4j_graph = Neo4jGraph(
-    url=url,
-    username=username,
-    password=password,
-)
-
 
 def render_page():
     st.header("📊 StackExchange Import Dashboard")
@@ -49,7 +33,7 @@ def render_page():
 
     # Get database summary
     try:
-        summary = get_database_summary(neo4j_graph)
+        summary = get_database_summary()
 
         # Display metrics in columns
         col1, col2, col3, col4 = st.columns(4)
@@ -139,7 +123,7 @@ def render_page():
 
     try:
         # Get import history
-        history = get_import_history(neo4j_graph, limit=20)
+        history = get_import_history(limit=50)
 
         if history:
             # Convert to DataFrame for better display
@@ -148,9 +132,11 @@ def render_page():
             # Format timestamp for display
             if "timestamp" in df.columns:
                 df["formatted_time"] = df["timestamp"].apply(
-                    lambda x: x.strftime("%Y-%m-%d %H:%M")
-                    if hasattr(x, "strftime")
-                    else str(x)[:16]
+                    lambda x: (
+                        x.strftime("%Y-%m-%d %H:%M")
+                        if hasattr(x, "strftime")
+                        else str(x)[:16]
+                    )
                 )
 
             # Display as interactive editor

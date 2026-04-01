@@ -12,6 +12,7 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware import Middleware
@@ -23,6 +24,15 @@ from setup.init_config import (
     get_graph_instance,
     NEO4J_URL,
     NEO4J_USERNAME,
+    create_constraints,
+)
+
+from utils.db_functions import (
+    get_database_summary,
+    get_import_history,
+    get_entity_counts,
+    search_nodes,
+    get_graph_sample,
 )
 
 from agent.agent import stackexchange_agent
@@ -56,8 +66,23 @@ middleware = [
     )
 ]
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize constraints on startup manually handling graph driver setup
+    try:
+        graph = get_graph_instance()
+        create_constraints(graph)
+        logger.info("Database constraints verified/created successfully.")
+    except Exception as e:
+        logger.error(f"Failed to create database constraints: {e}")
+    yield
+
+
 # initialise fastapi
-app = FastAPI(title="GraphRAG API", version="1.2.0", middleware=middleware)
+app = FastAPI(
+    title="GraphRAG API", version="1.2.0", middleware=middleware, lifespan=lifespan
+)
 
 
 class QueryRequest(BaseModel):
@@ -203,21 +228,48 @@ def delete_app_user(user_id: str):
 # Ingestion Endpoints
 # ===========================================================================================================================================================
 
+import_query = """
+    UNWIND $data AS q
+    MERGE (question:Question {id:q.question_id}) 
+    ON CREATE SET question.title = q.title, question.link = q.link, question.score = q.score,
+        question.favorite_count = q.favorite_count, question.creation_date = datetime({epochSeconds: q.creation_date}),
+        question.body = q.body_markdown, question.embedding = q.embedding
+    FOREACH (tagName IN q.tags | 
+        MERGE (tag:Tag {name:tagName}) 
+        MERGE (question)-[:TAGGED]->(tag)
+    )
+    FOREACH (a IN q.answers |
+        MERGE (question)<-[:ANSWERS]-(answer:Answer {id:a.answer_id})
+        SET answer.is_accepted = a.is_accepted,
+            answer.score = a.score,
+            answer.creation_date = datetime({epochSeconds:a.creation_date}),
+            answer.body = a.body_markdown,
+            answer.embedding = a.embedding
+        MERGE (answerer:User {id:coalesce(a.owner.user_id, "deleted")}) 
+        ON CREATE SET answerer.display_name = a.owner.display_name,
+                      answerer.reputation= a.owner.reputation
+        MERGE (answer)<-[:PROVIDED]-(answerer)
+    )
+    WITH * WHERE NOT q.owner.user_id IS NULL
+    MERGE (owner:User {id:q.owner.user_id})
+    ON CREATE SET owner.display_name = q.owner.display_name,
+                  owner.reputation = q.owner.reputation
+    MERGE (owner)-[:ASKED]->(question)
+    """
+
 
 @app.post("/api/v1/ingest")
 async def ingest_stackoverflow_data(request: IngestRequest):
     """Ingest StackOverflow data: compute embeddings and insert into Neo4j."""
     try:
-        from tools.graph_rag_tool import import_query
-
         data_items = request.data
         if not data_items:
             return {"status": "skipped", "message": "No data items to ingest."}
 
         # Use a separate thread for the heavy lifting (embeddings + DB)
         # Memory-safe: micro-batch embeddings and chunked Neo4j writes
-        EMBED_BATCH_SIZE = 10  # texts per embedding call
-        WRITE_BATCH_SIZE = 10  # questions per Neo4j transaction
+        EMBED_BATCH_SIZE = 50  # texts per embedding call
+        WRITE_BATCH_SIZE = 50  # questions per Neo4j transaction
 
         def process_ingestion(items):
             embedder = embedding_model()
@@ -570,6 +622,48 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
         },
+    )
+
+
+# ===========================================================================================================================================================
+# Analytical & Visualization Endpoints
+# ===========================================================================================================================================================
+
+
+@app.get("/api/v1/stats/summary")
+def api_get_database_summary():
+    return get_database_summary()
+
+
+@app.get("/api/v1/stats/history")
+def api_get_import_history(limit: int = 20):
+    return get_import_history(limit)
+
+
+@app.get("/api/v1/stats/entity_counts")
+def api_get_entity_counts():
+    return get_entity_counts()
+
+
+@app.get("/api/v1/graph/search")
+def api_search_nodes(term: str, limit: int = 10):
+    return search_nodes(term, limit)
+
+
+class GraphSampleRequest(BaseModel):
+    node_types: List[str]
+    rel_types: List[str]
+    limit: int = 50
+    focus_node_id: str = ""
+
+
+@app.post("/api/v1/graph/sample")
+def api_get_graph_sample(request: GraphSampleRequest):
+    return get_graph_sample(
+        request.node_types,
+        request.rel_types,
+        request.limit,
+        request.focus_node_id,
     )
 
 

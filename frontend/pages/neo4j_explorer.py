@@ -1,8 +1,6 @@
 import os
 import streamlit as st
 import streamlit.components.v1 as components
-from dotenv import load_dotenv
-from langchain_neo4j import Neo4jGraph
 from pyvis.network import Network
 import tempfile
 from utils.util import (
@@ -10,20 +8,6 @@ from utils.util import (
     get_graph_sample,
     display_container_name,
     search_nodes,
-)
-
-# Load environment variables
-load_dotenv()
-
-# Neo4j connection
-url = os.getenv("NEO4J_URL")
-username = os.getenv("NEO4J_USER")
-password = os.getenv("NEO4J_PASS")
-
-neo4j_graph = Neo4jGraph(
-    url=url,
-    username=username,
-    password=password,
 )
 
 # Color scheme for node types
@@ -197,10 +181,10 @@ def render_page():
         search_term = st.text_input(
             "Search Node (Title/Name)", placeholder="e.g. python"
         )
-        focus_node_id = None
+        focus_node_id = ""
 
         if search_term:
-            results = search_nodes(neo4j_graph, search_term)
+            results = search_nodes(search_term)
             if results:
                 options = {f"{r['type']}: {r['label'][:50]}": r["id"] for r in results}
                 selected_option = st.selectbox(
@@ -250,7 +234,7 @@ def render_page():
     st.subheader("📊 Database Entities")
 
     try:
-        counts = get_entity_counts(neo4j_graph)
+        counts = get_entity_counts()
         node_counts = counts.get("nodes", {})
         rel_counts = counts.get("relationships", {})
 
@@ -336,7 +320,6 @@ def render_page():
     try:
         with st.spinner("Loading knowledge graph..."):
             graph_data = get_graph_sample(
-                neo4j_graph,
                 node_types=selected_nodes,
                 rel_types=selected_rels,
                 limit=node_limit,

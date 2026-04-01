@@ -74,3 +74,114 @@ analyst_prompt = ChatPromptTemplate.from_messages(
         human_message_prompt,
     ]
 )
+
+### neo4j retrieval query
+retrieval_query = """
+// Start from vector search result variables: `node`, `score`
+WITH node, score
+// Route any node type to related Question(s) via UNION branches to avoid implicit grouping
+CALL {
+  WITH node
+  // If node is a Question, use it directly
+  WITH node
+  MATCH (q:Question)
+  WHERE node:Question AND elementId(q) = elementId(node)
+  RETURN q
+  UNION
+  // If node is an Answer, route to its Question
+  WITH node
+  MATCH (node:Answer)-[:ANSWERS]->(q:Question)
+  RETURN q
+  UNION
+  // If node is a Tag, route to Questions tagged with it
+  WITH node
+  MATCH (q:Question)-[:TAGGED]->(node:Tag)
+  RETURN q
+  UNION
+  // If node is a User, include Questions they asked
+  WITH node
+  MATCH (node:User)-[:ASKED]->(q:Question)
+  RETURN q
+  UNION
+  // If node is a User, include Questions they answered
+  WITH node
+  MATCH (node:User)-[:PROVIDED]->(:Answer)-[:ANSWERS]->(q:Question)
+  RETURN q
+}
+WITH DISTINCT q AS question, node, score
+
+// Community detection: compute overlap and optionally filter to same community when available
+WITH
+  question,
+  node,
+  score,
+  any(x IN coalesce(question.CommunityId, []) WHERE x IN coalesce(node.CommunityId, [])) AS sameCommunity,
+  (size(coalesce(question.CommunityId, [])) > 0 AND size(coalesce(node.CommunityId, [])) > 0) AS bothHaveCommunity
+WHERE NOT bothHaveCommunity OR sameCommunity
+
+// Build rich context for each question
+// Core question data
+WITH DISTINCT question, score, sameCommunity,
+     coalesce(question.CommunityId, []) AS qComm,
+     coalesce(node.CommunityId, []) AS nComm,
+     {
+  id: question.id,
+  title: question.title,
+  body: question.body,
+  link: question.link,
+  score: question.score,
+  favorite_count: question.favorite_count,
+  creation_date: toString(question.creation_date)
+} AS questionDetails
+
+// Askers
+OPTIONAL MATCH (asker:User)-[:ASKED]->(question)
+WITH question, score, sameCommunity, qComm, nComm, questionDetails, {
+  id: asker.id,
+  display_name: asker.display_name,
+  reputation: asker.reputation
+} AS askerDetails
+
+// Tags
+OPTIONAL MATCH (question)-[:TAGGED]->(tag:Tag)
+WITH question, score, sameCommunity, qComm, nComm, questionDetails, askerDetails,
+     COLLECT(DISTINCT tag.name) AS tags
+
+// Answers + providers
+OPTIONAL MATCH (answer:Answer)-[:ANSWERS]->(question)
+OPTIONAL MATCH (provider:User)-[:PROVIDED]->(answer)
+WITH question, score, sameCommunity, qComm, nComm, questionDetails, askerDetails, tags,
+     COLLECT(DISTINCT {
+       id: answer.id,
+       body: answer.body,
+       score: answer.score,
+       is_accepted: answer.is_accepted,
+       creation_date: toString(answer.creation_date),
+       provided_by: {
+         id: provider.id,
+         display_name: provider.display_name,
+         reputation: provider.reputation
+       }
+     }) AS answers
+
+// Final projection
+RETURN
+  'Title: ' + coalesce(question.title, '') + '\\nBody: ' + coalesce(question.body, '') AS text,
+  {
+    question_details: questionDetails,
+    asked_by: askerDetails,
+    tags: tags,
+    answers: {
+      answers: answers
+    },
+    community: {
+      questionCommunityId: qComm,
+      nodeCommunityId: nComm,
+      sameCommunity: sameCommunity
+    },
+    simscore: score
+  } AS metadata,
+  score
+ORDER BY score DESC
+LIMIT 50
+"""
