@@ -25,18 +25,18 @@ repos:
         types_or: [ python, pyi ]
 
   # Uncomment below when ready for type checking
-  # # Mypy for type checking
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.17.1 # Use a recent version
-    hooks:
-      # Run mypy only on files in the backend directory
-      - id: mypy
-        name: mypy (backend)
-        files: ^backend/
-        # Optional: You can specify mypy arguments here
-        # For instance, to respect your project's pyproject.toml
-        # args: [--no-warn-unused-ignores, --show-column-numbers]
-        additional_dependencies: [pydantic, fastapi, "uvicorn[standard]"] # Adjust based on your backend dependencies
+  # Mypy for type checking
+  # - repo: https://github.com/pre-commit/mirrors-mypy
+  #   rev: v1.17.1 # Use a recent version
+  #   hooks:
+  #     # Run mypy only on files in the backend directory
+  #     - id: mypy
+  #       name: mypy (backend)
+  #       files: ^backend/
+  #       # Optional: You can specify mypy arguments here
+  #       # For instance, to respect your project's pyproject.toml
+  #       # args: [--no-warn-unused-ignores, --show-column-numbers]
+  #       additional_dependencies: [pydantic, fastapi, "uvicorn[standard]"] # Adjust based on your backend dependencies
 
   # uv-pre-commit to keep lockfile in sync
   - repo: https://github.com/astral-sh/uv-pre-commit
