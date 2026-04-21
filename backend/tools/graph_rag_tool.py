@@ -70,7 +70,7 @@ except Exception as e:
 try:
     compressor = CrossEncoderReranker(
         model=reranker_model(),
-        top_n=10,  # This will return the top n most relevant documents.
+        top_n=5,  # This will return the top n most relevant documents.
     )
 except Exception as e:
     logger.error(f"Error creating compressor: {e}")
