@@ -10,13 +10,13 @@ from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse
 
 from dotenv import load_dotenv
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware import Middleware
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessage
 
 from setup.init_config import (
     answer_LLM,
@@ -46,6 +46,7 @@ from utils.memory import (
     get_chat_history,
     get_user_sessions,
     link_session_to_user,
+    repair_missing_has_message_relationships,
 )
 
 # Load environment variables
@@ -74,6 +75,13 @@ async def lifespan(app: FastAPI):
         graph = get_graph_instance()
         create_constraints(graph)
         logger.info("Database constraints verified/created successfully.")
+        
+        # Repair any sessions with missing HAS_MESSAGE relationships
+        repaired = repair_missing_has_message_relationships()
+        if repaired > 0:
+            logger.info(f"✅ Checked {repaired} sessions for missing HAS_MESSAGE relationships on startup")
+        else:
+            logger.info("✅ All sessions have correct HAS_MESSAGE relationships")
     except Exception as e:
         logger.error(f"Failed to create database constraints: {e}")
     yield
@@ -83,6 +91,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="GraphRAG API", version="1.2.0", middleware=middleware, lifespan=lifespan
 )
+
+# Define routers
+system_router = APIRouter(tags=["System"])
+users_router = APIRouter(tags=["Users"])
+chat_router = APIRouter(tags=["Chat"])
+repair_router = APIRouter(tags=["Repair"])
+ingest_router = APIRouter(prefix="/ingest", tags=["Ingestion"])
+stats_router = APIRouter(prefix="/stats", tags=["Analytics"])
+graph_router = APIRouter(prefix="/graph", tags=["Graph"])
 
 
 class QueryRequest(BaseModel):
@@ -103,19 +120,19 @@ class ImportRecordRequest(BaseModel):
     total_pages: int
 
 
-@app.get("/")
+@system_router.get("/")
 def index():
     return {"status": "online", "message": "Welcome to the GraphRAG API"}
 
 
-@app.get("/health")
+@system_router.get("/health")
 def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 
 # --- Add config endpoint ---
-@app.get("/api/v1/config")
+@system_router.get("/config")
 def get_configuration():
     """Provides frontend with configuration details for display."""
     try:
@@ -151,7 +168,7 @@ def get_configuration():
         }
 
 
-@app.get("/api/v1/users")
+@users_router.get("/users")
 def get_users():
     """Returns a list of all application users."""
     try:
@@ -162,7 +179,7 @@ def get_users():
         return {"users": [], "status": "error", "message": str(e)}
 
 
-@app.get("/api/v1/user/{user_id}/chats")
+@users_router.get("/user/{user_id}/chats")
 def get_user_chats(user_id: str):
     """Returns a list of chat sessions for a specific user."""
     try:
@@ -173,7 +190,7 @@ def get_user_chats(user_id: str):
         return {"chats": [], "status": "error", "message": str(e)}
 
 
-@app.get("/api/v1/chat/{session_id}")
+@chat_router.get("/chat/{session_id}")
 def get_chat_messages(session_id: str):
     """Returns the message history for a specific session, including thoughts for AI messages."""
     try:
@@ -202,7 +219,7 @@ def get_chat_messages(session_id: str):
         return {"messages": [], "status": "error", "message": str(e)}
 
 
-@app.delete("/api/v1/chat/{session_id}")
+@chat_router.delete("/chat/{session_id}")
 def delete_user_session(session_id: str):
     """Deletes a specific chat session."""
     try:
@@ -213,7 +230,28 @@ def delete_user_session(session_id: str):
         return {"status": "error", "message": str(e)}
 
 
-@app.delete("/api/v1/user/{user_id}")
+@repair_router.post("/repair-sessions")
+def repair_sessions():
+    """
+    Repairs sessions with missing HAS_MESSAGE relationships.
+    This fixes the issue where messages exist but are invisible to queries.
+    """
+    try:
+        repaired = repair_missing_has_message_relationships()
+        return {
+            "status": "success",
+            "message": f"Checked/repaired {repaired} sessions with missing HAS_MESSAGE relationships",
+            "repaired_count": repaired,
+        }
+    except Exception as e:
+        logger.error(f"Error repairing sessions: {e}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to repair sessions: {str(e)}"
+        )
+
+
+@users_router.delete("/user/{user_id}")
 def delete_app_user(user_id: str):
     """Deletes a user and all their data."""
     try:
@@ -258,7 +296,7 @@ import_query = """
     """
 
 
-@app.post("/api/v1/ingest")
+@ingest_router.post("")
 async def ingest_stackoverflow_data(request: IngestRequest):
     """Ingest StackOverflow data: compute embeddings and insert into Neo4j."""
     try:
@@ -328,7 +366,7 @@ async def ingest_stackoverflow_data(request: IngestRequest):
         return {"status": "error", "message": str(e)}
 
 
-@app.post("/api/v1/ingest/record")
+@ingest_router.post("/record")
 async def record_import_session(request: ImportRecordRequest):
     """Record an import session in Neo4j."""
     try:
@@ -364,7 +402,7 @@ async def record_import_session(request: ImportRecordRequest):
         return {"status": "error", "message": str(e)}
 
 
-@app.put("/api/v1/ingest/record/{import_id}")
+@ingest_router.put("/record/{import_id}")
 async def update_import_session(import_id: str, request: ImportRecordRequest):
     """Update an existing import session in Neo4j."""
     try:
@@ -394,7 +432,7 @@ async def update_import_session(import_id: str, request: ImportRecordRequest):
         return {"status": "error", "message": str(e)}
 
 
-@app.delete("/api/v1/ingest/record/{import_id}")
+@ingest_router.delete("/record/{import_id}")
 async def delete_import_session(import_id: str):
     """Delete an import session from Neo4j."""
     try:
@@ -419,7 +457,7 @@ async def delete_import_session(import_id: str):
 # ===========================================================================================================================================================
 
 
-@app.post("/agent/ask")
+@chat_router.post("/agent/ask")
 async def agent_ask(request: QueryRequest) -> StreamingResponse:
     """Endpoint to query the new LangChain Agent with SSE streaming."""
 
@@ -428,13 +466,23 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
             f"Agent request: '{request.question[:50]}...' from user {request.user_id}"
         )
 
+        # Initialize accumulators
+        response_chunks = []
+        response_thought_chunks = []
+
         try:
             # 1. Prepare Input
             # Retrieve history
-            chat_history_obj = await asyncio.to_thread(
-                get_chat_history, request.session_id
+            history_response = await asyncio.to_thread(
+                get_chat_messages, request.session_id
             )
-            messages = chat_history_obj.messages if chat_history_obj else []
+            messages = []
+            if history_response.get("status") == "success":
+                for msg in history_response.get("messages", []):
+                    if msg.get("role") == "user":
+                        messages.append(HumanMessage(content=msg.get("content", "")))
+                    elif msg.get("role") == "assistant":
+                        messages.append(AIMessage(content=msg.get("content", "")))
 
             # Construct input for Graph Agent (expects 'messages' key in state)
             # Add current user message to the history list
@@ -465,10 +513,6 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
             # 2. Stream Events from Agent Executor
             # version="v1" for langchain < 0.2, "v2" for >= 0.2
             # checking installed version or trying v2 is safer for new setups
-
-            # Initialize accumulators
-            response_chunks = []
-            response_thought_chunks = []
 
             async for event in stackexchange_agent.astream_events(
                 input_data, version="v2"
@@ -630,22 +674,22 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
 # ===========================================================================================================================================================
 
 
-@app.get("/api/v1/stats/summary")
+@stats_router.get("/summary")
 def api_get_database_summary():
     return get_database_summary()
 
 
-@app.get("/api/v1/stats/history")
+@stats_router.get("/history")
 def api_get_import_history(limit: int = 20):
     return get_import_history(limit)
 
 
-@app.get("/api/v1/stats/entity_counts")
+@stats_router.get("/entity_counts")
 def api_get_entity_counts():
     return get_entity_counts()
 
 
-@app.get("/api/v1/graph/search")
+@graph_router.get("/search")
 def api_search_nodes(term: str, limit: int = 10):
     return search_nodes(term, limit)
 
@@ -657,7 +701,7 @@ class GraphSampleRequest(BaseModel):
     focus_node_id: str = ""
 
 
-@app.post("/api/v1/graph/sample")
+@graph_router.post("/sample")
 def api_get_graph_sample(request: GraphSampleRequest):
     return get_graph_sample(
         request.node_types,
@@ -667,7 +711,17 @@ def api_get_graph_sample(request: GraphSampleRequest):
     )
 
 
+# Include routers
+app.include_router(system_router)
+app.include_router(users_router)
+app.include_router(chat_router)
+app.include_router(repair_router)
+app.include_router(ingest_router)
+app.include_router(stats_router)
+app.include_router(graph_router)
+
+
 # uvicorn main:app --reload
 if __name__ == "__main__":
     # Run the app with Uvicorn, specifying host and port here
-    uvicorn.run(app, host="0.0.0.0", port=8001, log_level="info")
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
