@@ -306,8 +306,8 @@ async def ingest_stackoverflow_data(request: IngestRequest):
 
         # Use a separate thread for the heavy lifting (embeddings + DB)
         # Memory-safe: micro-batch embeddings and chunked Neo4j writes
-        EMBED_BATCH_SIZE = 50  # texts per embedding call
-        WRITE_BATCH_SIZE = 50  # questions per Neo4j transaction
+        EMBED_BATCH_SIZE = 10  # texts per embedding call
+        WRITE_BATCH_SIZE = 10  # questions per Neo4j transaction
 
         def process_ingestion(items):
             embedder = embedding_model()

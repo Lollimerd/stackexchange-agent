@@ -321,7 +321,9 @@ def get_all_sessions():
         OPTIONAL MATCH (s)-[:HAS_MESSAGE]->(m:Message)
         WITH s, m ORDER BY coalesce(m.created_at, m.timestamp, elementId(m)) DESC
         WITH s, head(collect(m)) AS last_msg
-        RETURN s.id AS session_id, last_msg.content AS last_message
+        RETURN s.id AS session_id, last_msg.content AS last_message,
+               coalesce(last_msg.created_at, last_msg.timestamp, "0") AS last_activity
+        ORDER BY last_activity ASC
         LIMIT 100
         """
 
@@ -386,7 +388,9 @@ def get_user_sessions(user_id: str):
         OPTIONAL MATCH (s)-[:HAS_MESSAGE]->(m:Message)
         WITH s, m ORDER BY coalesce(m.created_at, m.timestamp, elementId(m)) DESC
         WITH s, head(collect(m)) AS last_msg
-        RETURN s.id AS session_id, last_msg.content AS last_message
+        RETURN s.id AS session_id, last_msg.content AS last_message,
+               coalesce(last_msg.created_at, last_msg.timestamp, "0") AS last_activity
+        ORDER BY last_activity ASC
         LIMIT 100
         """
 
