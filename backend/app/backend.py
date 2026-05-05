@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 # Define middleware
 middleware = [
     Middleware(
-        CORSMiddleware,  # type: ignore
+        CORSMiddleware,
         allow_origins=["*"],  # In production, specify exact origins
         allow_credentials=True,
         allow_methods=["*"],
@@ -455,13 +455,11 @@ async def delete_import_session(import_id: str):
 # ===========================================================================================================================================================
 # Streaming Logic
 # ===========================================================================================================================================================
-
-
 @chat_router.post("/agent/ask")
 async def agent_ask(request: QueryRequest) -> StreamingResponse:
     """Endpoint to query the new LangChain Agent with SSE streaming."""
 
-    async def agent_stream_generator() -> AsyncGenerator[str]:
+    async def agent_stream_generator() -> AsyncGenerator[str, None]:
         logger.info(
             f"Agent request: '{request.question[:50]}...' from user {request.user_id}"
         )

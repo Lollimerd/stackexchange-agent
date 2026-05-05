@@ -35,6 +35,7 @@ services:
       - "7687:7687" # Bolt protocol for drivers
     volumes:
       - neo4j_stackexchange_data:/data
+      - neo4j_stackexchange_logs:/logs
     pull_policy: missing
     environment:
       # --- Neo4j Authentication (REQUIRED) ---
@@ -79,11 +80,12 @@ services:
       timeout: 5s
       retries: 10
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
 
   backend-server:
     build:
-      context: . # project root — gives access to pyproject.toml + uv.lock
+      context: .
       dockerfile: backend/Dockerfile
     group_add:
       - "1001" # Your host's docker group GID
@@ -100,9 +102,7 @@ services:
       - HF_HUB_OFFLINE=1
       - HF_HOME=/home/appuser/.cache/huggingface
     restart: unless-stopped
-    # user: root
     volumes:
-      # - /var/run/docker.sock:/var/run/docker.sock
       - ~/.cache/huggingface:/home/appuser/.cache/huggingface:rw
     deploy:
       resources:
@@ -118,7 +118,7 @@ services:
       - app-network
     depends_on:
       graphDB:
-        condition: service_healthy
+        condition: service_started
       ollama:
         condition: service_healthy
 
@@ -139,7 +139,7 @@ services:
       backend-server:
         condition: service_started
       graphDB:
-        condition: service_healthy
+        condition: service_started
 
 networks:
   app-network:
@@ -147,4 +147,5 @@ networks:
 
 volumes:
   neo4j_stackexchange_data:
+  neo4j_stackexchange_logs:
   ollama_data:

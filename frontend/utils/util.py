@@ -246,7 +246,7 @@ def render_message_with_mermaid(content, key_suffix=""):
                             }}
                         </script>
                     """
-                    components.html(mermaid_html, height=600, scrolling=True)
+                    st.iframe(mermaid_html)
                 except Exception as e:
                     st.error(f"Failed to render Mermaid diagram: {e}")
                     st.code(mermaid_code, language="mermaid")
