@@ -7,7 +7,7 @@ from setup.init_config import summarizer
 
 
 summarize = SummarizationMiddleware(
-    model=summarizer(), trigger=("tokens", 8000), keep=("messages", 20)
+    model=summarizer(), trigger=("tokens", 2000), keep=("messages", 20)
 )
 
 

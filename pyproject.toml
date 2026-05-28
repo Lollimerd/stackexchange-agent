@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
+    "deepagents>=0.5.7",
     "docker>=7.1.0",
     "fastapi>=0.136.0",
     "httpx>=0.28.1",
@@ -19,6 +20,7 @@ dependencies = [
     "pandas>=3.0.2",
     "plotly>=6.7.0",
     "pydantic>=2.13.2",
+    "pyrefly>=1.0.0",
     "python-dotenv>=1.2.2",
     "pyvis>=0.3.2",
     "requests>=2.33.1",
@@ -29,3 +31,10 @@ dependencies = [
     "torch>=2.11.0",
     "uvicorn[standard]>=0.44.0",
 ]
+
+[tool.pyrefly]
+project-includes = [
+    "**/*.py*",
+    "**/*.ipynb",
+]
+search-path = ["backend", "frontend"]

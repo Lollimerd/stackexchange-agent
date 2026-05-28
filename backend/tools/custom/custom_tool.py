@@ -11,12 +11,9 @@ from langchain_classic.retrievers.document_compressors.cross_encoder_rerank impo
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from typing import List, Dict, Optional, Type, Any
 from langchain_core.documents import Document
-from tools.graph_rag_prompt import analyst_prompt, retrieval_query
+from tools.custom.cypher_src import retrieval_query
 from utils.util import format_docs_with_metadata, escape_lucene_chars
 from langchain_core.tools import BaseTool
-from middleware.langchain_middleware import (
-    process_with_topic_analysis,
-)
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
     AsyncCallbackManagerForToolRun,
@@ -25,29 +22,6 @@ from pydantic import BaseModel, Field
 import logging
 
 logger = logging.getLogger(__name__)
-
-
-def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
-    """Format chat history for inclusion in the prompt."""
-    try:
-        if not chat_history:
-            return ""
-
-        formatted_history = []
-        for msg in chat_history:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "user":
-                formatted_history.append(f"User: {content}")
-            elif role == "assistant":
-                # Only include the main content, not the thought process
-                formatted_history.append(f"Assistant: {content}")
-
-        return "\n".join(formatted_history)
-    except Exception as e:
-        logger.error(f"Error formatting chat history: {e}")
-        return ""
-
 
 # Create vector stores with error handling
 try:
@@ -70,7 +44,7 @@ except Exception as e:
 try:
     compressor = CrossEncoderReranker(
         model=reranker_model(),
-        top_n=5,  # This will return the top n most relevant documents.
+        top_n=20,  # This will return the top n most relevant documents.
     )
 except Exception as e:
     logger.error(f"Error creating compressor: {e}")
@@ -87,7 +61,7 @@ def retrieve_raw_docs(question: str) -> List[Document]:
     try:
         # Define the common search arguments once
         common_search_kwargs = {
-            "k": 50,  # Increased initial pool: wider net across all entity types
+            "k": 100,  # Increased initial pool: wider net across all entity types
             "score_threshold": 0.9,  # Slightly lowered to ensure we catch cross-domain links
             "fetch_k": 10000,  # Number of candidates for the initial vector search
             "lambda_mult": 0.5,  # Balanced weight between Vector and Full-text
@@ -142,30 +116,26 @@ def rerank_docs(inputs: Dict) -> List[Document]:
         docs = inputs.get("docs", [])
         question = inputs.get("question", "")
 
-        RELEVANCY_THRESHOLD = 0.95
-
         if not docs:
             return []
 
         logger.info(f"Reranking {len(docs)} documents...")
         reranked_docs = compressor.compress_documents(documents=docs, query=question)
 
-        # ✨ RELEVANCE GUARDRAIL: Filter by score
-        high_quality_docs = [
-            doc
-            for doc in reranked_docs
-            if doc.metadata.get("relevance_score", 1.0) >= RELEVANCY_THRESHOLD
-        ]
+        # ⚠️ BAAI/bge-reranker outputs logits (often negative or < 0.95). 
+        # A strict 0.95 probability threshold will drop almost all valid context!
+        high_quality_docs = reranked_docs
 
         # Handle Low-Confidence Situations
         if not high_quality_docs:
-            logger.warning(
-                f"⚠️ GUARDRAIL TRIGGERED: No docs met threshold {RELEVANCY_THRESHOLD}"
-            )
+            logger.warning("⚠️ No docs returned from reranker.")
             return []  # Returns empty context to trigger LLM fallback
 
-        logger.info(f"✅ {len(high_quality_docs)} docs passed relevancy guardrail.")
-        return high_quality_docs
+        # final_docs = list(high_quality_docs)[:50]
+        final_docs = list(high_quality_docs)
+
+        logger.info(f"✅ {len(final_docs)} docs passed reranking.")
+        return final_docs
     except Exception as e:
         logger.error(f"Error in rerank_docs: {e}")
         return []
@@ -183,23 +153,14 @@ retrieval_chain = RunnablePassthrough.assign(
 ) | RunnableLambda(rerank_docs).with_config(run_name="Reranking")
 
 # 2. Main GraphRAG Chain
-# Flow: Input -> Context/History Prep -> Topic Analysis -> LLM Generation
+# Flow: Input -> Context Prep
 try:
-    # Prepare inputs for the LLM (Context + History)
-    input_preparation = RunnablePassthrough.assign(
+    # Prepare inputs (Context only)
+    graph_rag_chain = RunnablePassthrough.assign(
         context=retrieval_chain | format_docs_with_metadata,
-        chat_history_formatted=lambda x: format_chat_history(x.get("chat_history", [])),
     )
 
-    graph_rag_chain = (
-        input_preparation
-        # Topic Analysis Middleware: Inspects context/history to maintain session topic
-        | process_with_topic_analysis
-        # inject system prompt
-        | analyst_prompt
-    )
-
-    logger.info("GraphRAG chain with topic analysis initialized successfully")
+    logger.info("GraphRAG chain initialized successfully")
 except Exception as e:
     logger.error(f"Error initializing GraphRAG chain: {e}")
     raise
@@ -223,11 +184,11 @@ class GraphRAGInput(BaseModel):
     )
 
 
-class GraphRAGTool(BaseTool):
+class CustomRAGTool(BaseTool):
     """Tool that queries the GraphRAG knowledge base."""
 
-    name: str = "graph_rag_tool"
-    description: str = "ALWAYS use this tool for ANY technical question, code snippet, or knowledge base query. Do not answer from memory."
+    name: str = "custom_rag_tool"
+    description: str = "Search the knowledge base for technical context. Call this tool ONCE to retrieve data, then immediately use that data to answer the user's question. DO NOT call this tool repeatedly for the same question."
     args_schema: Type[BaseModel] = GraphRAGInput
 
     # synchronous execution
@@ -240,22 +201,14 @@ class GraphRAGTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool synchronously."""
-        # Ensure chat_history is a list if it comes as None or something else
-        if chat_history is None:
-            chat_history = []
-        if not isinstance(chat_history, list):
-            # Fallback if LLM sends a string or other type
-            chat_history = []
         result = graph_rag_chain.invoke(
             {
                 "question": question,
-                "chat_history": chat_history,
-                "session_topic": session_topic,
-                "session_id": session_id,
             },
             config={"callbacks": run_manager.get_child() if run_manager else None},
         )
-        return result.to_string()
+        context = result.get("context", "")
+        return context if context.strip() else "No relevant context found in the knowledge graph. Do not try again."
 
     # asynchronous execution
     async def _arun(
@@ -267,22 +220,15 @@ class GraphRAGTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool asynchronously."""
-        # Ensure chat_history is a list
-        if chat_history is None:
-            chat_history = []
-        if not isinstance(chat_history, list):
-            chat_history = []
         result = await graph_rag_chain.ainvoke(
             {
                 "question": question,
-                "chat_history": chat_history,
-                "session_topic": session_topic,
-                "session_id": session_id,
             },
             config={"callbacks": run_manager.get_child() if run_manager else None},
         )
-        return result.to_string()
+        context = result.get("context", "")
+        return context if context.strip() else "No relevant context found in the knowledge graph. Do not try again."
 
 
 # Initialize the tool
-graph_rag_tool = GraphRAGTool()
+custom_rag_tool = CustomRAGTool()

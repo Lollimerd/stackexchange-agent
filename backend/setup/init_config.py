@@ -27,13 +27,33 @@ def answer_LLM():
         model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
         num_ctx=32768,  # 32k context
-        num_predict=8192,  # max tokens in answer
+        num_predict=4096,  # max tokens in answer
         temperature=0.7,  # more creative
         repeat_penalty=1.5,  # higher, penalise repetitions
         repeat_last_n=-1,  # look back within context to penalise penalty
         top_p=0.5,  # more focused text
         top_k=10,  # give less diverse answers
         reasoning=True,
+    )
+
+
+def cypher_LLM():
+    """
+    Dedicated LLM for Cypher query generation inside GraphCypherQAChain.
+    Reasoning is explicitly disabled so that <think> tokens are never emitted
+    during the tool's internal LLM calls — preventing them from leaking into
+    the agent's streaming event bus and appearing as spurious thought output.
+    Lower temperature + greedy top_k/top_p gives deterministic, schema-faithful queries.
+    """
+    return ChatOllama(
+        model="qwen3.5:4b",
+        base_url=OLLAMA_BASE_URL,
+        num_ctx=32768,   # Cypher prompts are short; no need for 32k
+        num_predict=1024,  # Cypher queries are concise
+        temperature=0.0,  # fully deterministic — critical for valid Cypher
+        top_p=1.0,
+        top_k=1,
+        reasoning=False,  # MUST be False — no <think> tokens in tool steps
     )
 
 
@@ -46,7 +66,6 @@ def embedding_model():
         model="jina/jina-embeddings-v2-base-en:latest",
         base_url=OLLAMA_BASE_URL,
         num_ctx=8192,  # 8k context
-        num_thread=16,
     )
 
 
@@ -74,16 +93,21 @@ def summarizer():
 
 _graph_instance = None
 
-
+# Initialize the Graph connection
 def get_graph_instance() -> Neo4jGraph:
     """Get or create a reusable Neo4j graph instance (connection pooling)."""
     global _graph_instance
     if _graph_instance is None:
         _graph_instance = Neo4jGraph(
-            url=NEO4J_URL, username=NEO4J_USERNAME, password=NEO4J_PASSWORD
+            url=NEO4J_URL, 
+            username=NEO4J_USERNAME, 
+            password=NEO4J_PASSWORD,
+            enhanced_schema=True,
+            refresh_schema=True
         )
     return _graph_instance
 
+print(get_graph_instance().schema)
 
 def create_constraints(driver) -> None:
     """Creates minimum necessary constraints for data integrity and traversal optimization."""
