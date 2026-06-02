@@ -1,6 +1,10 @@
 from langchain_core.documents import Document
 from typing import List, Any
 import json, docker, re, os, socket
+from contextvars import ContextVar
+
+# Tracks the number of tool calls within the current query execution context.
+tool_call_count: ContextVar[int] = ContextVar("tool_call_count", default=0)
 
 
 def escape_lucene_chars(text: str) -> str:
@@ -139,3 +143,35 @@ def format_docs_with_metadata(docs: list[Document]) -> str:
     print("=" * 100 + "\n")
 
     return final_context_str
+
+
+def sanitize_doc_size(doc: Document, max_content_len: int = 2500, max_metadata_str_len: int = 3500) -> Document:
+    """
+    Truncates a Document's page_content and string-based metadata fields to prevent context explosion and memory overflow.
+    """
+    # 1. Truncate page content
+    content = doc.page_content or ""
+    if len(content) > max_content_len:
+        content = content[:max_content_len] + "\n... [truncated to prevent context overflow] ..."
+    
+    # 2. Truncate long string fields in metadata
+    new_metadata: dict[str, Any] = {}
+    for k, v in doc.metadata.items():
+        if isinstance(v, str):
+            if len(v) > max_metadata_str_len:
+                new_metadata[k] = v[:max_metadata_str_len] + "\n... [truncated] ..."
+            else:
+                new_metadata[k] = v
+        elif isinstance(v, list):
+            new_list = []
+            for item in v:
+                if isinstance(item, str) and len(item) > max_metadata_str_len:
+                    new_list.append(item[:max_metadata_str_len] + "...")
+                else:
+                    new_list.append(item)
+            new_metadata[k] = new_list
+        else:
+            new_metadata[k] = v
+            
+    return Document(page_content=content, metadata=new_metadata)
+

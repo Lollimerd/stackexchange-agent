@@ -1,5 +1,7 @@
 #!/bin/bash
 
+export HF_HUB_OFFLINE=1
+
 # init venv
 source .venv/bin/activate
 echo "venv activated"
