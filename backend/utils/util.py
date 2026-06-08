@@ -1,10 +1,32 @@
 from langchain_core.documents import Document
 from typing import List, Any
 import json, docker, re, os, socket
-from contextvars import ContextVar
 
-# Tracks the number of tool calls within the current query execution context.
-tool_call_count: ContextVar[int] = ContextVar("tool_call_count", default=0)
+# ---------------------------------------------------------------------------
+# Per-request tool-call counter
+# ---------------------------------------------------------------------------
+# ContextVar values are COPIED (not shared) when asyncio creates new tasks,
+# so mutations inside LangGraph tool nodes never propagate back to the
+# request context.  A module-level dict keyed by session_id is genuinely
+# shared across all coroutines/tasks and is safe to mutate from any of them.
+_tool_call_counts: dict[str, int] = {}
+
+
+def reset_tool_call_count(session_id: str) -> None:
+    """Call once at the start of each agent invocation to reset the counter."""
+    _tool_call_counts[session_id] = 0
+
+
+def get_tool_call_count(session_id: str) -> int:
+    """Return how many times the tool has been called for this request."""
+    return _tool_call_counts.get(session_id, 0)
+
+
+def increment_tool_call_count(session_id: str) -> int:
+    """Increment and return the new count."""
+    new_count = _tool_call_counts.get(session_id, 0) + 1
+    _tool_call_counts[session_id] = new_count
+    return new_count
 
 
 def escape_lucene_chars(text: str) -> str:
