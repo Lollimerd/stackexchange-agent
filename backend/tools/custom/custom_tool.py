@@ -12,7 +12,16 @@ from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from typing import List, Dict, Optional, Type, Any
 from langchain_core.documents import Document
 from tools.custom.cypher_src import retrieval_query
-from utils.util import format_docs_with_metadata, escape_lucene_chars, get_tool_call_count, increment_tool_call_count
+from utils.util import (
+    format_docs_with_metadata,
+    escape_lucene_chars,
+    get_tool_call_count,
+    increment_tool_call_count,
+    check_retrieval_hard_stop,
+    get_tool_call_start_time,
+)
+import asyncio
+import time
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -210,19 +219,16 @@ class CustomRAGTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool synchronously."""
-        current_count = get_tool_call_count(session_id)
-        if current_count >= 2:
+        should_stop, stop_reason = check_retrieval_hard_stop(session_id)
+        if should_stop:
             logger.warning(
-                "custom_rag_tool invocation blocked for session '%s': limit of 2 reached (count=%d).",
-                session_id, current_count,
+                "custom_rag_tool invocation hard stopped for session '%s': %s",
+                session_id, stop_reason,
             )
-            return (
-                "[HARD STOP] Tool call limit reached (max 2 per query). "
-                "You have already searched the knowledge base the maximum number of times. "
-                "Do NOT call this tool again. Formulate your final answer now using what you have."
-            )
+            return stop_reason
+
         increment_tool_call_count(session_id)
-        logger.info("custom_rag_tool call #%d for session '%s'.", current_count + 1, session_id)
+        logger.info("custom_rag_tool call for session '%s'.", session_id)
 
         result = graph_rag_chain.invoke(
             {
@@ -247,26 +253,42 @@ class CustomRAGTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool asynchronously."""
-        current_count = get_tool_call_count(session_id)
-        if current_count >= 2:
+        should_stop, stop_reason = check_retrieval_hard_stop(session_id)
+        if should_stop:
             logger.warning(
-                "custom_rag_tool invocation blocked for session '%s': limit of 2 reached (count=%d).",
-                session_id, current_count,
+                "custom_rag_tool invocation hard stopped for session '%s': %s",
+                session_id, stop_reason,
+            )
+            return stop_reason
+
+        increment_tool_call_count(session_id)
+        logger.info("custom_rag_tool call for session '%s'.", session_id)
+
+        start_time = get_tool_call_start_time(session_id)
+        elapsed = (time.time() - start_time) if start_time else 0.0
+        remaining_time = max(0.5, 30.0 - elapsed)
+
+        try:
+            result = await asyncio.wait_for(
+                graph_rag_chain.ainvoke(
+                    {
+                        "question": question,
+                    },
+                    config={"callbacks": run_manager.get_child() if run_manager else None},
+                ),
+                timeout=remaining_time,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(
+                "custom_rag_tool query timed out after %.1fs for session '%s'.",
+                remaining_time, session_id,
             )
             return (
-                "[HARD STOP] Tool call limit reached (max 2 per query). "
-                "You have already searched the knowledge base the maximum number of times. "
+                "[HARD STOP] Retrieval duration limit reached (max 30 seconds). "
+                "Retrieval duration has exceeded 30 seconds during search execution. "
                 "Do NOT call this tool again. Formulate your final answer now using what you have."
             )
-        increment_tool_call_count(session_id)
-        logger.info("custom_rag_tool call #%d for session '%s'.", current_count + 1, session_id)
 
-        result = await graph_rag_chain.ainvoke(
-            {
-                "question": question,
-            },
-            config={"callbacks": run_manager.get_child() if run_manager else None},
-        )
         context = result.get("context", "")
         return (
             context

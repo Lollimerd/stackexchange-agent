@@ -33,7 +33,11 @@ from langchain_core.runnables import RunnableLambda
 from langchain_neo4j import GraphCypherQAChain
 
 from setup.init_config import cypher_LLM, embedding_model, get_graph_instance, reranker_model
-from utils.util import format_docs_with_metadata
+from utils.util import (
+    format_docs_with_metadata,
+    check_retrieval_hard_stop,
+    increment_tool_call_count,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -272,6 +276,13 @@ def graph_rag_tool(question: str) -> str:
         Neo4j.  The agent should use this data to compose its final answer.
     """
     logger.info("graph_rag_tool invoked: %r", question[:120])
+
+    should_stop, stop_reason = check_retrieval_hard_stop()
+    if should_stop:
+        logger.warning("graph_rag_tool hard stopped: %s", stop_reason)
+        return stop_reason
+
+    increment_tool_call_count()
 
     try:
         # Step 1 — Cypher generation + Neo4j execution

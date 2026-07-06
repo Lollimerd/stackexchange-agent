@@ -2,31 +2,86 @@ from langchain_core.documents import Document
 from typing import List, Any
 import json, docker, re, os, socket
 
+import time
+
 # ---------------------------------------------------------------------------
-# Per-request tool-call counter
+# Per-request tool-call counter and retrieval duration timer
 # ---------------------------------------------------------------------------
 # ContextVar values are COPIED (not shared) when asyncio creates new tasks,
 # so mutations inside LangGraph tool nodes never propagate back to the
 # request context.  A module-level dict keyed by session_id is genuinely
 # shared across all coroutines/tasks and is safe to mutate from any of them.
 _tool_call_counts: dict[str, int] = {}
+_tool_call_start_times: dict[str, float] = {}
+_latest_session_id: str = ""
+
+MAX_TOOL_CALLS = 2
+MAX_RETRIEVAL_DURATION_SECONDS = 30.0
 
 
 def reset_tool_call_count(session_id: str) -> None:
-    """Call once at the start of each agent invocation to reset the counter."""
+    """Call once at the start of each agent invocation to reset the counter and timer."""
+    global _latest_session_id
+    if session_id:
+        _latest_session_id = session_id
     _tool_call_counts[session_id] = 0
+    _tool_call_start_times[session_id] = time.time()
 
 
-def get_tool_call_count(session_id: str) -> int:
+def get_active_session_id(session_id: str = "") -> str:
+    """Return the passed session_id or fallback to the latest active session ID."""
+    return session_id or _latest_session_id
+
+
+def get_tool_call_count(session_id: str = "") -> int:
     """Return how many times the tool has been called for this request."""
-    return _tool_call_counts.get(session_id, 0)
+    sid = get_active_session_id(session_id)
+    return _tool_call_counts.get(sid, 0)
 
 
-def increment_tool_call_count(session_id: str) -> int:
+def get_tool_call_start_time(session_id: str = "") -> float | None:
+    """Return the start time of the retrieval request."""
+    sid = get_active_session_id(session_id)
+    return _tool_call_start_times.get(sid)
+
+
+def increment_tool_call_count(session_id: str = "") -> int:
     """Increment and return the new count."""
-    new_count = _tool_call_counts.get(session_id, 0) + 1
-    _tool_call_counts[session_id] = new_count
+    sid = get_active_session_id(session_id)
+    new_count = _tool_call_counts.get(sid, 0) + 1
+    _tool_call_counts[sid] = new_count
     return new_count
+
+
+def check_retrieval_hard_stop(session_id: str = "") -> tuple[bool, str]:
+    """
+    Checks if retrieval should hard stop based on either:
+    1. Maximum tool call count reached (max 2 per query)
+    2. Maximum retrieval duration reached (30 seconds max)
+
+    Returns (should_stop, message).
+    """
+    sid = get_active_session_id(session_id)
+    current_count = _tool_call_counts.get(sid, 0)
+    start_time = _tool_call_start_times.get(sid)
+
+    if current_count >= MAX_TOOL_CALLS:
+        return True, (
+            "[HARD STOP] Tool call limit reached (max 2 per query). "
+            "You have already searched the knowledge base the maximum number of times. "
+            "Do NOT call this tool again. Formulate your final answer now using what you have."
+        )
+
+    if start_time is not None:
+        elapsed = time.time() - start_time
+        if elapsed >= MAX_RETRIEVAL_DURATION_SECONDS:
+            return True, (
+                f"[HARD STOP] Retrieval duration limit reached ({elapsed:.1f}s >= {MAX_RETRIEVAL_DURATION_SECONDS}s max). "
+                "Retrieval duration has exceeded 30 seconds. "
+                "Do NOT call this tool again. Formulate your final answer now using what you have."
+            )
+
+    return False, ""
 
 
 def escape_lucene_chars(text: str) -> str:
