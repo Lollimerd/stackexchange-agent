@@ -3,17 +3,22 @@
 
 # StackExchange GraphRAG Chatbot
 
-This project is a sophisticated Graph-based Retrieval-Augmented Generation (GraphRAG) application. It leverages a Neo4j graph database to store and query StackExchange data (like StackOverflow), a FastAPI backend to handle logic, and a multi-featured Streamlit UI for user interaction. The system can answer questions by retrieving relevant context from the knowledge graph and synthesizing answers using a local LLM hosted via Ollama.
+This project is a sophisticated agentic Graph-based Retrieval-Augmented Generation (GraphRAG) application. It leverages a Neo4j graph database to store and query StackExchange data (like StackOverflow), a FastAPI backend to handle logic, and a multi-featured Streamlit UI for user interaction. The system can answer questions by retrieving relevant context from the knowledge graph and synthesizing answers using a local LLM hosted via Ollama.
 
 ## ✨ Features
 
-  * **Advanced GraphRAG Pipeline**: Moves beyond simple vector search by using an `EnsembleRetriever` to pull context from `Question`, `Answer`, `User`, and `Tag` nodes in the graph.
-  * **Rich Context Retrieval**: A custom Cypher query fetches not just the relevant question but also its associated answers, tags, and user details, providing rich, interconnected context to the LLM.
+  * **Advanced GraphRAG Pipeline**: Moves beyond simple vector search by using an `EnsembleRetriever` to pull context from `Question`, `Answer`, `User`, and `Tag` nodes in the graph.  
+  
+  * **Rich Context Retrieval**: A `custom Cypher query` fetches not just the relevant question but also its associated `answers`, `tags`, and `user details`, providing rich, interconnected context to the LLM.
+  
   * **Streaming Responses**: The backend streams the LLM's response directly to the UI for a real-time, ChatGPT-like experience.
+  
   * **Visible Agent Thoughts**: The LLM is prompted to "think" before answering. This thought process is captured and displayed in a collapsible expander in the UI, providing transparency into the agent's reasoning.
-  * **Interactive Multi-Chat UI**: The Streamlit frontend supports multiple, independent chat sessions. Users can create, delete, and switch between chats, with history saved for each session.
-  * **Dynamic Data Ingestion**: A "Stackoverflow Loader" tab in the UI allows users to pull data directly from the Stack Exchange API by tag or by top-voted questions and load it into the Neo4j database.
-  * **Graph Explorer**: An interactive visualization tool (`neo4j_explorer.py`) to navigate the knowledge graph, filter by node/relationship types, and focus on specific entities.
+  
+  * **Interactive Multi-Chat UI**: The Streamlit frontend supports multiple, independent chat sessions. Users can `create`, `delete`, and `switch` between chats, with history saved for each session.
+  
+  * **Dynamic Data Ingestion**: A "Stackoverflow Loader" tab in the UI allows users to pull data directly from the `Stack Exchange API` by `tag` or by `top-voted questions` and load it into the Neo4j database.
+  * **Graph Explorer**: An interactive visualization tool (`neo4j_explorer.py`) to navigate the knowledge graph, filter by `node/relationship` types, and focus on specific entities.
   * **Analytics Dashboard**: A dedicated dashboard (`dashboard.py`) tracking import history, database statistics, and trends over time.
   * **Dockerized Deployment**: Fully containerized setup using Docker Compose, orchestrating the FastAPI backend, Streamlit frontend, Neo4j database, and Ollama services.
   * **Configuration Display**: The UI fetches and displays key configuration details (like the Ollama model and Neo4j connection info) from the backend.
@@ -135,8 +140,6 @@ OLLAMA_BASE_URL="http://localhost:11434"
 ```
 
 Fill in the `.env` file with your actual Neo4j and Ollama details.
-
-### 4\. Run the Application
 
 ### 4\. Run the Application
 
