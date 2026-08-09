@@ -1,18 +1,19 @@
 import asyncio
 import json
 import logging
+import uuid
+import uvicorn
 
 from datetime import datetime
 from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse
-import uuid
-import uvicorn
 
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.middleware import Middleware
 
 from setup.init_config import (
     answer_LLM,
@@ -21,7 +22,7 @@ from setup.init_config import (
     NEO4J_URL,
     NEO4J_USERNAME,
 )
-from tools.graph_rag_tool import graph_rag_tool
+
 from agent.agent import agent_executor
 from utils.util import find_container_by_port
 from utils.memory import (
@@ -34,7 +35,7 @@ from utils.memory import (
     get_user_sessions,
     link_session_to_user,
 )
-from utils.topic_manager import TopicManager
+
 
 # Load environment variables
 load_dotenv()
@@ -43,21 +44,24 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 # ===========================================================================================================================================================
 # FastAPI Backend Server
 # ===========================================================================================================================================================
 
-# initialise fastapi
-app = FastAPI(title="GraphRAG API", version="1.2.0")
+# Define middleware
+middleware = [
+    Middleware(
+        CORSMiddleware,  # type: ignore
+        allow_origins=["*"],  # In production, specify exact origins
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+]
 
-# Add CORS middleware to allow requests from frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# initialise fastapi
+app = FastAPI(title="GraphRAG API", version="1.2.0", middleware=middleware)
 
 
 class QueryRequest(BaseModel):
@@ -344,104 +348,84 @@ async def delete_import_session(import_id: str):
         return {"status": "error", "message": str(e)}
 
 
-@app.post("/stream-ask")
-async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
-    """This endpoint includes topic continuity analysis for context-aware responses."""
+@app.post("/agent/ask")
+async def agent_ask(request: QueryRequest) -> StreamingResponse:
+    """
+    Endpoint to query the new LangChain Agent with SSE streaming.
+    """
 
-    async def stream_generator() -> AsyncGenerator[str]:
+    async def agent_stream_generator() -> AsyncGenerator[str]:
         logger.info(
-            f"Incoming question: '{request.question[:50]}...' from user {request.user_id}"
+            f"Agent request: '{request.question[:50]}...' from user {request.user_id}"
         )
 
-        # FIX: Run blocking Neo4j operations in thread pool to avoid blocking event loop
         try:
-            # Check if first message and get current topic
-            existing_history = await asyncio.to_thread(
-                get_chat_history, request.session_id
-            )
-            is_first_message = not existing_history or not existing_history.messages
-
-            # On first message, use the question as the topic
-            topic = request.question if is_first_message else None
-
-            await asyncio.to_thread(
-                link_session_to_user, request.session_id, request.user_id, topic or ""
-            )
-
-            # Get chat history and current topic
+            # 1. Prepare Input
+            # Retrieve history
             chat_history_obj = await asyncio.to_thread(
                 get_chat_history, request.session_id
             )
-            stored_messages = chat_history_obj.messages if chat_history_obj else []
+            messages = chat_history_obj.messages if chat_history_obj else []
 
-            session_topic = await asyncio.to_thread(
-                TopicManager.get_session_topic, request.session_id
-            )
+            input_data = {"input": request.question, "chat_history": messages}
 
-            # Analyze topic continuity
-            similarity_data = await asyncio.to_thread(
-                TopicManager.calculate_topic_similarity, request.question, session_topic
-            )
-
-            logger.info(f"Topic continuity: {similarity_data['recommendation']}")
-
-            # Update topic if significant shift detected
-            if not is_first_message:
+            # Save user message to DB
+            try:
+                # Ensure session is linked to user
                 await asyncio.to_thread(
-                    TopicManager.update_session_topic_if_changed,
+                    link_session_to_user,
                     request.session_id,
+                    request.user_id,
                     request.question,
-                    similarity_data,
                 )
 
-        except Exception as e:
-            logger.warning(f"Error during DB setup: {e}, continuing with empty history")
-            stored_messages = []
-            session_topic = ""
-            similarity_data = {
-                "similarity_score": 1.0,
-                "is_continuation": True,
-                "confidence_level": "high",
-                "recommendation": "Error in analysis, proceeding normally",
-            }
+                await asyncio.to_thread(
+                    add_user_message_to_session, request.session_id, request.question
+                )
+            except Exception as e:
+                logger.warning(f"Error saving user message: {e}")
 
-        # Convert to the format your chain expects
-        formatted_history = [
-            {"role": msg.type, "content": msg.content} for msg in stored_messages
-        ]
+            # 2. Stream Events from Agent Executor
+            # version="v1" for langchain < 0.2, "v2" for >= 0.2
+            # checking installed version or trying v2 is safer for new setups
 
-        logger.info(
-            f"Chat history: {len(formatted_history)} messages, topic: {session_topic}"
-        )
+            # Initialize accumulators
+            response_chunks = []
+            response_thought_chunks = []
 
-        # Add user message to DB
-        try:
-            await asyncio.to_thread(
-                add_user_message_to_session, request.session_id, request.question
-            )
-        except Exception as e:
-            logger.warning(f"Error saving user message: {e}")
-
-        # Accumulated output for saving later
-        response_chunks = []
-        thought_chunks = []
-
-        try:
-            # Pass both session_id and topic to the chain
-            async for event in graph_rag_tool.astream_events(
-                {
-                    "question": request.question,
-                    "chat_history": formatted_history,
-                    "session_topic": session_topic,
-                    "session_id": request.session_id,
-                },
-                version="v2",
-            ):
+            async for event in agent_executor.astream_events(input_data, version="v2"):
                 event_type = event["event"]
                 event_name = event["name"]
 
-                # --- Status Updates ---
-                if event_type == "on_chain_start":
+                # --- A. Status Updates (Tools) ---
+                if event_type == "on_tool_start":
+                    # Notify frontend that a tool is running
+                    yield f"data: {
+                        json.dumps(
+                            {
+                                'type': 'status',
+                                'stage': 'tool_start',
+                                'status': 'running',
+                                'message': f'🛠️ Using tool: {event_name}...',
+                            }
+                        )
+                    }\n\n"
+
+                elif event_type == "on_tool_end":
+                    yield f"data: {
+                        json.dumps(
+                            {
+                                'type': 'status',
+                                'stage': 'tool_end',
+                                'status': 'complete',
+                                'message': f'✅ Tool {event_name} completed',
+                            }
+                        )
+                    }\n\n"
+
+                # --- B. Internal Tool Steps (GraphTraversal & Reranking) ---
+                # These events happen *inside* the tool execution
+                elif event_type == "on_chain_start":
                     if event_name == "GraphTraversal":
                         yield f"data: {
                             json.dumps(
@@ -467,6 +451,7 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
 
                 elif event_type == "on_chain_end":
                     if event_name == "GraphTraversal":
+                        # Attempt to extract count if possible, though 'output' structure varies
                         output = event["data"].get("output", [])
                         count = len(output) if isinstance(output, list) else 0
                         yield f"data: {
@@ -495,65 +480,50 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
                             )
                         }\n\n"
 
-                elif event_type == "on_chat_model_start":
-                    yield f"data: {
-                        json.dumps(
-                            {
-                                'type': 'status',
-                                'stage': 'thinking',
-                                'status': 'running',
-                                'message': '🤔 Thinking...',
-                            }
-                        )
-                    }\n\n"
-
-                # --- Token Streaming ---
+                # --- C. Token Streaming (LLM) ---
+                # We only want tokens from the final chat model in the agent, not internal steps if possible.
+                # Usually, 'on_chat_model_stream' works for the final response generation.
                 elif event_type == "on_chat_model_stream":
                     chunk = event["data"].get("chunk")
-                    if not chunk:
-                        continue
+                    if chunk:
+                        content = (
+                            chunk.content if hasattr(chunk, "content") else str(chunk)
+                        )
+                        # Extract reasoning content if available
+                        reasoning_chunk = (
+                            chunk.additional_kwargs.get("reasoning_content", "")
+                            if hasattr(chunk, "additional_kwargs")
+                            else ""
+                        )
 
-                    # Extract content and reasoning
-                    content_chunk = (
-                        chunk.content if hasattr(chunk, "content") else str(chunk)
-                    )
-                    reasoning_chunk = (
-                        chunk.additional_kwargs.get("reasoning_content", "")
-                        if hasattr(chunk, "additional_kwargs")
-                        else ""
-                    )
+                        if content or reasoning_chunk:
+                            event_data = {
+                                "type": "token",
+                                "content": content,
+                                "reasoning_content": reasoning_chunk,
+                            }
+                            yield f"data: {json.dumps(event_data)}\n\n"
 
-                    # Accumulate for DB save
-                    response_chunks.append(content_chunk)
-                    thought_chunks.append(reasoning_chunk)
+                            # Accumulate content
+                            response_chunks.append(content)
+                            # Accumulate reasoning/thoughts if we want to save them
+                            if reasoning_chunk:
+                                response_thought_chunks.append(reasoning_chunk)
 
-                    # Create a dictionary for this stream chunk
-                    event_data = {
-                        "type": "token",
-                        "content": content_chunk,
-                        "reasoning_content": reasoning_chunk,
-                    }
-
-                    # Format as an SSE data payload
-                    yield f"data: {json.dumps(event_data)}\n\n"
+                # --- D. Final Output ---
+                # 'on_chain_end' for the main executor might contain the final output,
+                # but valid streaming builds the answer token-by-token.
 
         except Exception as e:
-            logger.error(f"Error during streaming: {e}")
-            error_event = {
-                "type": "error",
-                "content": f"[Error processing response: {str(e)}]",
-                "reasoning_content": "",
-            }
-            yield f"data: {json.dumps(error_event)}\n\n"
-            # Don't raise here to allow DB save of partial response if any
+            logger.error(f"Error in agent stream: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
-        # Save AI response
+        # 3. Save AI Response to DB
         try:
             full_response = "".join(response_chunks)
-            full_thought = "".join(thought_chunks)
+            full_thought = "".join(response_thought_chunks)
 
-            # Only save if we got something
-            if full_response or full_thought:
+            if full_response:
                 await asyncio.to_thread(
                     add_ai_message_to_session,
                     request.session_id,
@@ -563,130 +533,6 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
                 logger.info(f"Response saved to DB: {len(full_response)} chars")
         except Exception as e:
             logger.warning(f"Error saving AI response: {e}")
-
-    # FIX: Add proper headers for SSE and disable buffering
-    return StreamingResponse(
-        stream_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-        },
-    )
-
-
-@app.post("/agent/ask")
-async def agent_ask(request: QueryRequest) -> StreamingResponse:
-    """
-    Endpoint to query the new LangChain Agent with SSE streaming.
-    """
-
-    async def agent_stream_generator() -> AsyncGenerator[str]:
-        logger.info(
-            f"Agent request: '{request.question[:50]}...' from user {request.user_id}"
-        )
-
-        try:
-            # 1. Prepare Input
-            # Retrieve history
-            chat_history_obj = await asyncio.to_thread(
-                get_chat_history, request.session_id
-            )
-            messages = chat_history_obj.messages if chat_history_obj else []
-
-            input_data = {"input": request.question, "chat_history": messages}
-
-            # 2. Stream Events from Agent Executor
-            # version="v1" for langchain < 0.2, "v2" for >= 0.2
-            # checking installed version or trying v2 is safer for new setups
-            async for event in agent_executor.astream_events(
-                input_data,
-                version="v2"
-            ):
-                event_type = event["event"]
-                event_name = event["name"]
-                
-                # --- A. Status Updates (Tools) ---
-                if event_type == "on_tool_start":
-                    # Notify frontend that a tool is running
-                    yield f"data: {json.dumps({
-                        'type': 'status',
-                        'stage': 'tool_start',
-                        'status': 'running',
-                        'message': f'🛠️ Using tool: {event_name}...'
-                    })}\n\n"
-                    
-                elif event_type == "on_tool_end":
-                    yield f"data: {json.dumps({
-                        'type': 'status',
-                        'stage': 'tool_end',
-                        'status': 'complete',
-                        'message': f'✅ Tool {event_name} completed'
-                    })}\n\n"
-
-                # --- B. Internal Tool Steps (GraphTraversal & Reranking) ---
-                # These events happen *inside* the tool execution
-                elif event_type == "on_chain_start":
-                    if event_name == "GraphTraversal":
-                        yield f"data: {json.dumps({
-                            'type': 'status',
-                            'stage': 'graph_traversal',
-                            'status': 'running',
-                            'message': '🕷️ Traversing Knowledge Graph...'
-                        })}\n\n"
-                    elif event_name == "Reranking":
-                        yield f"data: {json.dumps({
-                            'type': 'status',
-                            'stage': 'reranking',
-                            'status': 'running',
-                            'message': '⚖️ Reranking Documents...'
-                        })}\n\n"
-
-                elif event_type == "on_chain_end":
-                    if event_name == "GraphTraversal":
-                        # Attempt to extract count if possible, though 'output' structure varies
-                        output = event["data"].get("output", [])
-                        count = len(output) if isinstance(output, list) else 0
-                        yield f"data: {json.dumps({
-                            'type': 'status',
-                            'stage': 'graph_traversal',
-                            'status': 'complete',
-                            'message': f'✅ Found {count} documents',
-                            'count': count
-                        })}\n\n"
-                    elif event_name == "Reranking":
-                        output = event["data"].get("output", [])
-                        count = len(output) if isinstance(output, list) else 0
-                        yield f"data: {json.dumps({
-                            'type': 'status',
-                            'stage': 'reranking',
-                            'status': 'complete',
-                            'message': f'✅ Top {count} documents selected',
-                            'count': count
-                        })}\n\n"
-
-                # --- C. Token Streaming (LLM) ---
-                # We only want tokens from the final chat model in the agent, not internal steps if possible.
-                # Usually, 'on_chat_model_stream' works for the final response generation.
-                elif event_type == "on_chat_model_stream":
-                    chunk = event["data"].get("chunk")
-                    if chunk:
-                        content = chunk.content if hasattr(chunk, "content") else str(chunk)
-                        if content:
-                            yield f"data: {json.dumps({
-                                'type': 'token',
-                                'content': content
-                            })}\n\n"
-
-                # --- D. Final Output ---
-                # 'on_chain_end' for the main executor might contain the final output,
-                # but valid streaming builds the answer token-by-token.
-
-        except Exception as e:
-            logger.error(f"Error in agent stream: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
     return StreamingResponse(
         agent_stream_generator(),

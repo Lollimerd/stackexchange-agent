@@ -65,7 +65,7 @@ The application is composed of three main components that work together:
 
 1.  **Neo4j Database**: The knowledge graph that stores StackExchange data (Questions, Answers, Users, Tags) and their relationships. Vector indexes are created on nodes for efficient similarity search.
 2.  **FastAPI Backend (`backend/app/backend.py`)**:
-      * Exposes a `/stream-ask` endpoint that receives a user's question.
+      * Exposes an `/agent/ask` endpoint that receives a user's question.
       * Embeds the question and uses a LangChain `EnsembleRetriever` to perform a hybrid search across multiple Neo4j vector indexes.
       * Executes a detailed Cypher query to retrieve a rich subgraph of context around the matched questions.
       * Formats the retrieved context and the user's question into a prompt for the LLM.
