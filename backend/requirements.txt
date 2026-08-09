@@ -32,6 +32,7 @@ langchain-core
 langchain-community
 langchain-neo4j
 langchain-ollama
+langchain-classic
 
 # Database & Graph
 neo4j
