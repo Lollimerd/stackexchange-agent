@@ -14,7 +14,7 @@ summarize = SummarizationMiddleware(
 clear_tool_uses = ContextEditingMiddleware(
     edits=[
         ClearToolUsesEdit(
-            trigger=100000,
+            trigger=1000000,
             keep=3,
         ),
     ],
