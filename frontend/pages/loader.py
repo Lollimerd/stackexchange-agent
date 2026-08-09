@@ -38,7 +38,7 @@ neo4j_graph = Neo4jGraph(
     password=password, 
 )
 
-def load_so_data(tag: str, page: int) -> dict:
+def load_so_data(tag: str, page: int, site: str) -> dict:
     """
     Load Stack Overflow data and handle potential errors gracefully.
     This function is now designed to run in a background thread and should NOT call any st.* functions.
@@ -71,10 +71,10 @@ def load_so_data(tag: str, page: int) -> dict:
         return {"status": "error", "tag": tag, "page": page, "error": f"Network error: {e}"}
     except Exception as e:
         return {"status": "error", "tag": tag, "page": page, "error": f"An unexpected error occurred: {e}"}
-    
-def load_high_score_so_data() -> None:
+
+def load_high_score_so_data(site: str) -> None:
     """load stackoverflow data with a high score"""
-    parameters = (f"""?fromdate=1664150400&order=desc&sort=votes&site=stackoverflow&filter=!.DK56VBPooplF.)bWW5iOX32Fh1lcCkw1b_Y6Zkb7YD8.ZMhrR5.FRRsR6Z1uK8*Z5wPaONvyII""")
+    parameters = (f"""?fromdate=1664150400&order=desc&sort=votes&site={site}&filter=!.DK56VBPooplF.)bWW5iOX32Fh1lcCkw1b_Y6Zkb7YD8.ZMhrR5.FRRsR6Z1uK8*Z5wPaONvyII""")
     data = requests.get(so_api_base_url + parameters).json()
     if "items" in data and data["items"]:
         if "error_name" in data:
@@ -110,6 +110,13 @@ def get_tags() -> list[str]:
     )
     return [tag.strip() for tag in input_text.split(",") if tag.strip()]
 
+def get_site() -> str:
+    """Gets the Stack Exchange site to import from."""
+    site = st.text_input(
+        "Enter Stack Exchange site", value="stackoverflow"
+    )
+    return site.strip()
+
 def get_pages():
     col1, col2 = st.columns(2)
     with col1:
@@ -127,6 +134,7 @@ def render_page():
     st.subheader("Choose StackOverflow tags to load into Neo4j")
     st.caption("Go to http://localhost:7473/ to explore the graph.")
 
+    site = get_site()
     tags_to_import = get_tags()
     num_pages, start_page = get_pages()
 
@@ -141,7 +149,7 @@ def render_page():
             
             with ThreadPoolExecutor(max_workers=4) as executor:
                 futures = [
-                    executor.submit(load_so_data, tag, start_page + i)
+                    executor.submit(load_so_data, tag, start_page + i, site)
                     for tag in tags_to_import
                     for i in range(num_pages)
                 ]
