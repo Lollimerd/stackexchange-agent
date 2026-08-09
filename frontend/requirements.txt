@@ -8,5 +8,11 @@ requests
 plotly
 pandas
 python-dotenv
+<<<<<<< HEAD
 pyvis
 langchain-neo4j
+=======
+langchain-neo4j
+langchain-ollama
+pyvis
+>>>>>>> 0ca05ca (initial commit)
