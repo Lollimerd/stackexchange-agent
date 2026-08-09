@@ -14,11 +14,12 @@ from datetime import datetime
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 # --- API Configuration ---
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8001")
 FASTAPI_URL = f"{BACKEND_URL}/stream-ask"
 CHATS_URL = f"{BACKEND_URL}/api/v1/user"  # /{user_id}/chats
 CHAT_HISTORY_URL = f"{BACKEND_URL}/api/v1/chat"
 USERS_URL = f"{BACKEND_URL}/api/v1/users"
+AGENT_URL = f"{BACKEND_URL}/agent/ask"
 
 
 # --- API Helper Functions with Error Handling ---
@@ -69,7 +70,9 @@ def delete_user_api(user_id):
 def delete_import_log_api(import_id):
     """Delete an import log."""
     try:
-        response = requests.delete(f"{BACKEND_URL}/api/v1/ingest/record/{import_id}", timeout=5)
+        response = requests.delete(
+            f"{BACKEND_URL}/api/v1/ingest/record/{import_id}", timeout=5
+        )
         response.raise_for_status()
         logger.info(f"Import log {import_id} deleted")
         return True
@@ -82,7 +85,9 @@ def delete_import_log_api(import_id):
 def update_import_log_api(import_id, data):
     """Update an import log."""
     try:
-        response = requests.put(f"{BACKEND_URL}/api/v1/ingest/record/{import_id}", json=data, timeout=5)
+        response = requests.put(
+            f"{BACKEND_URL}/api/v1/ingest/record/{import_id}", json=data, timeout=5
+        )
         response.raise_for_status()
         logger.info(f"Import log {import_id} updated")
         return True
@@ -168,17 +173,11 @@ def extract_title_and_question(input_string):
 
 def create_vector_index(driver) -> None:
     index_query = "CREATE VECTOR INDEX stackoverflow IF NOT EXISTS FOR (m:Question) ON m.embedding"
-    try:
-        driver.query(index_query)
-    except:  # Already exists
-        pass
+    driver.query(index_query)
     index_query = (
         "CREATE VECTOR INDEX top_answers IF NOT EXISTS FOR (m:Answer) ON m.embedding"
     )
-    try:
-        driver.query(index_query)
-    except:  # Already exists
-        pass
+    driver.query(index_query)
 
 
 def create_constraints(driver):
@@ -249,7 +248,7 @@ def render_message_with_mermaid(content, key_suffix=""):
 
             if mermaid_code:
                 try:
-                    st_mermaid(mermaid_code, height=500)
+                    st_mermaid(mermaid_code)
                 except Exception as e:
                     st.error(f"Failed to render Mermaid diagram: {e}")
                     st.code(mermaid_code, language="mermaid")
@@ -258,7 +257,7 @@ def render_message_with_mermaid(content, key_suffix=""):
             st.markdown(part)
 
 
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8001")
 CONFIG_URL = f"{BACKEND_URL}/api/v1/config"  # New API endpoint
 
 

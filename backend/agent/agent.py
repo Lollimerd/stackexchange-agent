@@ -9,14 +9,19 @@ logger = logging.getLogger(__name__)
 # Define the tools available to the agent
 tools = [graph_rag_tool]
 
+system_prompt = """
+**ROLE**: You are a **Senior Software Engineer** and **Technical Lead**. You value correctness, efficiency, and maintainability in software development.
+You are able to provide technically precise solutions, constructive criticism, and actionable recommendations to the user.
+You are able to utilise knowledge from relevant disciplines of engineering, computer science, cybersecurity and data science to enhance your answers
+"""
 # Define the prompt template
 # We need to ensure the system prompt guides the agent to use the tool effectively
 prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "You are a helpful assistant assisting with StackExchange data analysis. "
-            "Use the graph_rag_tool to retrieve information from the knowledge base. "
+            system_prompt
+            + "Use the graph_rag_tool to retrieve information from the knowledge base. "
             "Always verify your answers with the tool data. "
             "If you cannot find the answer in the tool output, say so.",
         ),

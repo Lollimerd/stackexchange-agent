@@ -319,6 +319,8 @@ try:
         input_preparation
         # Topic Analysis Middleware: Inspects context/history to maintain session topic
         | process_with_topic_analysis
+        # inject system prompt
+        | analyst_prompt
         # Final Answer Generation
         | answer_LLM()
     )

@@ -578,33 +578,126 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
 
 
 @app.post("/agent/ask")
-async def agent_ask(request: QueryRequest):
+async def agent_ask(request: QueryRequest) -> StreamingResponse:
     """
-    Endpoint to query the new LangChain Agent.
+    Endpoint to query the new LangChain Agent with SSE streaming.
     """
-    try:
-        # Construct input for the agent
-        # We need to format chat history if available, but for now we pass empty
-        # The agent prompt expects "chat_history" and "input"
 
-        # Simple history retrieval (same as existing endpoint)
-        chat_history_obj = get_chat_history(request.session_id)
-        messages = chat_history_obj.messages if chat_history_obj else []
+    async def agent_stream_generator() -> AsyncGenerator[str]:
+        logger.info(
+            f"Agent request: '{request.question[:50]}...' from user {request.user_id}"
+        )
 
-        # We need to convert Neo4j/LangChain messages to the format expected by ChatPromptTemplate
-        # But ChatPromptTemplate with "placeholder" handles list of BaseMessages nicely.
-        # Neo4jChatMessageHistory.messages returns list of BaseMessages.
+        try:
+            # 1. Prepare Input
+            # Retrieve history
+            chat_history_obj = await asyncio.to_thread(
+                get_chat_history, request.session_id
+            )
+            messages = chat_history_obj.messages if chat_history_obj else []
 
-        input_data = {"input": request.question, "chat_history": messages}
+            input_data = {"input": request.question, "chat_history": messages}
 
-        result = await agent_executor.ainvoke(input_data)
+            # 2. Stream Events from Agent Executor
+            # version="v1" for langchain < 0.2, "v2" for >= 0.2
+            # checking installed version or trying v2 is safer for new setups
+            async for event in agent_executor.astream_events(
+                input_data,
+                version="v2"
+            ):
+                event_type = event["event"]
+                event_name = event["name"]
+                
+                # --- A. Status Updates (Tools) ---
+                if event_type == "on_tool_start":
+                    # Notify frontend that a tool is running
+                    yield f"data: {json.dumps({
+                        'type': 'status',
+                        'stage': 'tool_start',
+                        'status': 'running',
+                        'message': f'🛠️ Using tool: {event_name}...'
+                    })}\n\n"
+                    
+                elif event_type == "on_tool_end":
+                    yield f"data: {json.dumps({
+                        'type': 'status',
+                        'stage': 'tool_end',
+                        'status': 'complete',
+                        'message': f'✅ Tool {event_name} completed'
+                    })}\n\n"
 
-        # Result will contain "output" which is the final string answer
-        return {"status": "success", "answer": result.get("output", "")}
+                # --- B. Internal Tool Steps (GraphTraversal & Reranking) ---
+                # These events happen *inside* the tool execution
+                elif event_type == "on_chain_start":
+                    if event_name == "GraphTraversal":
+                        yield f"data: {json.dumps({
+                            'type': 'status',
+                            'stage': 'graph_traversal',
+                            'status': 'running',
+                            'message': '🕷️ Traversing Knowledge Graph...'
+                        })}\n\n"
+                    elif event_name == "Reranking":
+                        yield f"data: {json.dumps({
+                            'type': 'status',
+                            'stage': 'reranking',
+                            'status': 'running',
+                            'message': '⚖️ Reranking Documents...'
+                        })}\n\n"
 
-    except Exception as e:
-        logger.error(f"Error in agent execution: {e}")
-        return {"status": "error", "message": str(e)}
+                elif event_type == "on_chain_end":
+                    if event_name == "GraphTraversal":
+                        # Attempt to extract count if possible, though 'output' structure varies
+                        output = event["data"].get("output", [])
+                        count = len(output) if isinstance(output, list) else 0
+                        yield f"data: {json.dumps({
+                            'type': 'status',
+                            'stage': 'graph_traversal',
+                            'status': 'complete',
+                            'message': f'✅ Found {count} documents',
+                            'count': count
+                        })}\n\n"
+                    elif event_name == "Reranking":
+                        output = event["data"].get("output", [])
+                        count = len(output) if isinstance(output, list) else 0
+                        yield f"data: {json.dumps({
+                            'type': 'status',
+                            'stage': 'reranking',
+                            'status': 'complete',
+                            'message': f'✅ Top {count} documents selected',
+                            'count': count
+                        })}\n\n"
+
+                # --- C. Token Streaming (LLM) ---
+                # We only want tokens from the final chat model in the agent, not internal steps if possible.
+                # Usually, 'on_chat_model_stream' works for the final response generation.
+                elif event_type == "on_chat_model_stream":
+                    chunk = event["data"].get("chunk")
+                    if chunk:
+                        content = chunk.content if hasattr(chunk, "content") else str(chunk)
+                        if content:
+                            yield f"data: {json.dumps({
+                                'type': 'token',
+                                'content': content
+                            })}\n\n"
+
+                # --- D. Final Output ---
+                # 'on_chain_end' for the main executor might contain the final output,
+                # but valid streaming builds the answer token-by-token.
+
+        except Exception as e:
+            logger.error(f"Error in agent stream: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
+    return StreamingResponse(
+        agent_stream_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
 
 
 # uvicorn main:app --reload
