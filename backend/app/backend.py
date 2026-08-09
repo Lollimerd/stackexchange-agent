@@ -14,7 +14,8 @@ from tools.custom_tool import graph_rag_chain
 from utils.memory import (
     get_chat_history, get_user_sessions, link_session_to_user, 
     get_all_users, delete_session, delete_user, 
-    add_user_message_to_session, add_ai_message_to_session, get_session_topic
+    add_user_message_to_session, add_ai_message_to_session, get_session_topic,
+    calculate_topic_similarity, update_session_topic_if_changed, get_relevant_context_for_continuation
 )
 
 # Load environment variables
@@ -44,7 +45,7 @@ class QueryRequest(BaseModel):
     """configure question template for answer LLM"""
     question: str
     session_id: str
-    user_id: str = ""  # Default for backward compatibility or simple testing
+    user_id: str = ""
 
 @app.get('/')
 def index():
@@ -168,14 +169,13 @@ def delete_app_user(user_id: str):
 
 @app.post("/stream-ask")
 async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
-    """This endpoint now includes chat history for context-aware responses."""
+    """This endpoint includes topic continuity analysis for context-aware responses."""
     async def stream_generator() -> AsyncGenerator[str]:
         logger.info(f"Incoming question: '{request.question[:50]}...' from user {request.user_id}")
 
         # FIX: Run blocking Neo4j operations in thread pool to avoid blocking event loop
         try:
-            # 0. Link Session to User (non-blocking)
-            # Check if this is the first message in the session to set the topic
+            # Check if first message and get current topic
             existing_history = await asyncio.to_thread(
                 get_chat_history,
                 request.session_id
@@ -192,23 +192,46 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
                 topic
             )
 
-            # 1. Retrieve History from Neo4j (non-blocking)
+            # Get chat history and current topic
             chat_history_obj = await asyncio.to_thread(
                 get_chat_history,
                 request.session_id
             )
             stored_messages = chat_history_obj.messages if chat_history_obj else []
             
-            # 2. Get the session topic for context
             session_topic = await asyncio.to_thread(
                 get_session_topic,
                 request.session_id
             )
+            
+            # Analyze topic continuity
+            similarity_data = await asyncio.to_thread(
+                calculate_topic_similarity,
+                request.question,
+                session_topic
+            )
+            
+            logger.info(f"Topic continuity: {similarity_data['recommendation']}")
+            
+            # Update topic if significant shift detected
+            if not is_first_message:
+                await asyncio.to_thread(
+                    update_session_topic_if_changed,
+                    request.session_id,
+                    request.question,
+                    similarity_data
+                )
+
         except Exception as e:
             logger.warning(f"Error during DB setup: {e}, continuing with empty history")
-            # Continue with empty history if DB fails
             stored_messages = []
             session_topic = ""
+            similarity_data = {
+                "similarity_score": 1.0,
+                "is_continuation": True,
+                "confidence_level": "high",
+                "recommendation": "Error in analysis, proceeding normally"
+            }
 
         # Convert to the format your chain expects
         formatted_history = [
@@ -216,9 +239,9 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
             for msg in stored_messages
         ]
 
-        logger.info(f"Chat history loaded: {len(formatted_history)} messages, topic: {session_topic}")
+        logger.info(f"Chat history: {len(formatted_history)} messages, topic: {session_topic}")
 
-        # 3. Add User Message to DB (non-blocking)
+        # Add user message to DB
         try:
             await asyncio.to_thread(
                 add_user_message_to_session,
@@ -228,17 +251,18 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
         except Exception as e:
             logger.warning(f"Error saving user message: {e}")
 
-        # 4. Accumulated output for saving later
+        # Accumulated output for saving later
         response_chunks = []
         thought_chunks = []
 
         try:
-            # Pass chat history and topic to the chain
+            # Pass both session_id and topic to the chain
             async for chunk in graph_rag_chain.astream(
                 {
                     "question": request.question,
                     "chat_history": formatted_history,
-                    "session_topic": session_topic
+                    "session_topic": session_topic,
+                    "session_id": request.session_id
                 },
             ):
                 # Extract content and reasoning
@@ -267,7 +291,7 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
             yield f"data: {json.dumps(error_event)}\n\n"
             raise
 
-        # 5. Join accumulated chunks and save AI Response to DB (non-blocking, after stream)
+        # Save AI response
         try:
             full_response = "".join(response_chunks)
             full_thought = "".join(thought_chunks)
@@ -277,6 +301,9 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
                 full_response,
                 full_thought
             )
+            logger.info(f"Response saved to DB: {len(full_response)} chars")
+        except Exception as e:
+            logger.warning(f"Error saving AI response: {e}")
             logger.info(f"Response saved to DB: {len(full_response)} chars")
         except Exception as e:
             logger.warning(f"Error saving AI response: {e}")
