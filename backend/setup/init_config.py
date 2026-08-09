@@ -26,7 +26,7 @@ def answer_LLM():
     return ChatOllama(
         model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=131072,  # 40k context
+        num_ctx=40960,  # 40k context
         num_predict=16384,  # max tokens in answer
         temperature=0.7,  # more creative
         repeat_penalty=1.5,  # higher, penalise repetitions
@@ -38,12 +38,12 @@ def answer_LLM():
 
 
 # embedding model — singleton to avoid reloading on every call
-# jina/jina-embeddings-v2-base-en:latest
+# snowflake artic embed2
 @lru_cache(maxsize=1)
 def embedding_model():
     """embedding model"""
     return OllamaEmbeddings(
-        model="snowflake-arctic-embed2",
+        model="jina/jina-embeddings-v2-base-en:latest",
         base_url=OLLAMA_BASE_URL,
         num_ctx=8192,  # 8k context
         num_thread=16,
