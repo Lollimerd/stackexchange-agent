@@ -1,12 +1,11 @@
 import os, time, requests
 from dotenv import load_dotenv
-from langchain_neo4j import Neo4jGraph
 import streamlit as st
 from streamlit.logger import get_logger
-from langchain_ollama import OllamaEmbeddings
 from utils.util import create_constraints, create_vector_index, import_query, record_import_session
-# from PIL import Image
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from backend.setup.init import EMBEDDINGS, graph
+# from PIL import Image
 
 # load credential details
 load_dotenv()
@@ -72,15 +71,15 @@ def insert_so_data(data: dict) -> None:
     # Calculate embedding values for questions and answers
     for q in data["items"]:
         question_text = q["title"] + "\n" + q["body_markdown"]
-        q["embedding"] = embeddings.embed_query(question_text)
+        q["embedding"] = EMBEDDINGS.embed_query(question_text)
         time.sleep(0.5)  # to avoid hitting rate limits
         for a in q["answers"]:
-            a["embedding"] = embeddings.embed_query(
+            a["embedding"] = EMBEDDINGS.embed_query(
                 question_text + "\n" + a["body_markdown"]
             )
             time.sleep(0.5)  # to avoid hitting rate limits
 
-    neo4j_graph.query(import_query, {"data": data["items"]})
+    graph.query(import_query, {"data": data["items"]})
 
 
 # --- Streamlit ---
@@ -158,7 +157,7 @@ def render_page():
             # Record the import session in Neo4j
             try:
                 record_import_session(
-                    neo4j_graph, 
+                    graph,
                     total_imported_count, 
                     tags_to_import, 
                     num_pages
