@@ -1,29 +1,37 @@
 version: '3.13.5'
-name: stackoverflow-chatbot
+name: stackexchange-agent
 
 services:
   ollama:
-    image: ollama/ollama
+    image: ollama/ollama:latest
     container_name: localLLMs
     ports:
-      - "11434:11434"
+      - "11430:11434"
     gpus: all
     environment:
-      - OLLAMA_FLASH_ATTENTION=1
-      - OLLAMA_KV_CACHE_TYPE=q4_0
-      - OLLAMA_NUM_CTX=32768
+      - OLLAMA_FLASH_ATTENTION=1 # enable to optimize inference
+      - OLLAMA_KV_CACHE_TYPE=q4_0 # lowest vram usage
+      - OLLAMA_NUM_CTX=32768 # default context window
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_KEEP_ALIVE=-1 # models will not be unloaded from gpu
+      - OLLAMA_NUM_PARALLEL=2 # no of concurrent request
     volumes:
       - ollama_data:/root/.ollama
     restart: always
     networks:
       - app-network
+    healthcheck:
+      test: [ "CMD", "ollama", "list" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   graphDB:
-    container_name: stackoverflowDB
+    container_name: stackexchangeDB
     image: neo4j:latest # Using 'latest' for the most recent Community Edition.
     ports:
-      - "7473:7474" # Neo4j Browser / HTTP API
-      - "7686:7687" # Bolt protocol for drivers
+      - "7474:7474" # Neo4j Browser / HTTP API
+      - "7687:7687" # Bolt protocol for drivers
     volumes:
       - neo4j_stackoverflow_data:/data
     environment:
@@ -64,6 +72,11 @@ services:
     restart: always
     networks:
       - app-network
+    healthcheck:
+      test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
     depends_on:
       - ollama
 
@@ -82,21 +95,16 @@ services:
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
       - HF_HUB_OFFLINE=1
       - HF_HOME=/home/appuser/.cache/huggingface
-      # Point ONNX Runtime TensorRT engine cache to the persisted volume
-      - ORT_TENSORRT_CACHE_PATH=/tmp/trt_cache
     restart: always
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # rw so ONNX models can be cached on first pull
       - ~/.cache/huggingface:/home/appuser/.cache/huggingface:rw
-      # Persist TensorRT compiled engines — skips recompilation on restart
-      - tensorrt_cache:/tmp/trt_cache
     deploy:
       resources:
-        limits:
-          memory: 4G # cap container RAM
-          cpus: '4' # cap CPU cores
+        # limits:
+        #   memory: 4G # cap container RAM
+        #   cpus: '4' # cap CPU cores
         reservations:
           devices:
             - driver: nvidia
@@ -106,21 +114,18 @@ services:
       - app-network
     depends_on:
       graphDB:
-        condition: service_started
+        condition: service_healthy
       ollama:
-        condition: service_started
+        condition: service_healthy
 
   frontend:
     build:
       context: ./frontend
     container_name: streamlit-frontend
     ports:
-      - 8501:8501
+      - 8510:8501
     environment:
       - BACKEND_URL=http://backend-server:8000
-      - NEO4J_URL=bolt://graphDB:7687
-      - NEO4J_USERNAME=${NEO4J_USERNAME}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
     restart: always
     networks:
@@ -129,7 +134,7 @@ services:
       backend-server:
         condition: service_started
       graphDB:
-        condition: service_started
+        condition: service_healthy
 
 networks:
   app-network:
@@ -138,4 +143,3 @@ networks:
 volumes:
   neo4j_stackoverflow_data:
   ollama_data:
-  tensorrt_cache: # Persists TensorRT compiled engines across restarts

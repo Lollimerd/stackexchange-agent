@@ -22,17 +22,17 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 
 # qwen3:8b works for now with limited context of 40k, qwen3:30b works with 256k max
 def answer_LLM():
+    """main model for RAG agent"""
     return ChatOllama(
-        model="qwen3:8b",
+        model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=40960,  # 40k context
-        num_predict=8192,  # max tokens in answer
+        num_ctx=131072,  # 40k context
+        num_predict=16384,  # max tokens in answer
         temperature=0.7,  # more creative
         repeat_penalty=1.5,  # higher, penalise repetitions
         repeat_last_n=-1,  # look back within context to penalise penalty
         top_p=0.5,  # more focused text
         top_k=10,  # give less diverse answers
-        num_thread=8,
         reasoning=True,
     )
 
@@ -41,6 +41,7 @@ def answer_LLM():
 # jina/jina-embeddings-v2-base-en:latest
 @lru_cache(maxsize=1)
 def embedding_model():
+    """embedding model"""
     return OllamaEmbeddings(
         model="snowflake-arctic-embed2",
         base_url=OLLAMA_BASE_URL,
@@ -52,6 +53,7 @@ def embedding_model():
 # reranker model — singleton: ONNX + TensorRT compilation happens once
 @lru_cache(maxsize=1)
 def reranker_model():
+    """reranker model"""
     return HuggingFaceCrossEncoder(
         model_name="BAAI/bge-reranker-base",
         model_kwargs={
@@ -62,8 +64,9 @@ def reranker_model():
 
 # save llama3.1:8b for now
 def summarizer():
+    """summarizes historical context"""
     return ChatOllama(
-        model="qwen3:0.6b",
+        model="qwen3.5:0.8b",
         base_url=OLLAMA_BASE_URL,
         num_ctx=40960,  # 40k context
     )
@@ -80,6 +83,28 @@ def get_graph_instance() -> Neo4jGraph:
             url=NEO4J_URL, username=NEO4J_USERNAME, password=NEO4J_PASSWORD
         )
     return _graph_instance
+
+
+def create_constraints(driver) -> None:
+    """Creates minimum necessary constraints for data integrity and traversal optimization."""
+    driver.query(
+        "CREATE CONSTRAINT question_id IF NOT EXISTS FOR (q:Question) REQUIRE (q.id) IS UNIQUE"
+    )
+    driver.query(
+        "CREATE CONSTRAINT answer_id IF NOT EXISTS FOR (a:Answer) REQUIRE (a.id) IS UNIQUE"
+    )
+    driver.query(
+        "CREATE CONSTRAINT user_id IF NOT EXISTS FOR (u:User) REQUIRE (u.id) IS UNIQUE"
+    )
+    driver.query(
+        "CREATE CONSTRAINT tag_name IF NOT EXISTS FOR (t:Tag) REQUIRE (t.name) IS UNIQUE"
+    )
+    driver.query(
+        "CREATE CONSTRAINT importlog_id IF NOT EXISTS FOR (i:ImportLog) REQUIRE (i.id) IS UNIQUE"
+    )
+    driver.query(
+        "CREATE CONSTRAINT session_id IF NOT EXISTS FOR (s:Session) REQUIRE (s.id) IS UNIQUE"
+    )
 
 
 # print(f"\nschema: {graph.schema}\n")

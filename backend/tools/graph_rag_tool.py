@@ -3,7 +3,6 @@ from setup.init_config import (
     embedding_model,
     create_vector_stores,
     reranker_model,
-    answer_LLM,
 )
 from langchain_classic.retrievers.ensemble import EnsembleRetriever
 from langchain_classic.retrievers.document_compressors.cross_encoder_rerank import (
@@ -12,10 +11,9 @@ from langchain_classic.retrievers.document_compressors.cross_encoder_rerank impo
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from typing import List, Dict, Optional, Type, Any
 from langchain_core.documents import Document
-from prompts.system_prompts import analyst_prompt
+from tools.graph_rag_prompt import analyst_prompt, retrieval_query
 from utils.util import format_docs_with_metadata, escape_lucene_chars
 from langchain_core.tools import BaseTool
-from agent.messages import format_chat_history
 from middleware.langchain_middleware import (
     process_with_topic_analysis,
 )
@@ -26,150 +24,30 @@ from langchain_core.callbacks import (
 from pydantic import BaseModel, Field
 import logging
 
-
 logger = logging.getLogger(__name__)
 
-# ===========================================================================================================================================================
-# Crafting custom cypher retrieval queries
-# ===========================================================================================================================================================
-import_query = """
-    UNWIND $data AS q
-    MERGE (question:Question {id:q.question_id}) 
-    ON CREATE SET question.title = q.title, question.link = q.link, question.score = q.score,
-        question.favorite_count = q.favorite_count, question.creation_date = datetime({epochSeconds: q.creation_date}),
-        question.body = q.body_markdown, question.embedding = q.embedding
-    FOREACH (tagName IN q.tags | 
-        MERGE (tag:Tag {name:tagName}) 
-        MERGE (question)-[:TAGGED]->(tag)
-    )
-    FOREACH (a IN q.answers |
-        MERGE (question)<-[:ANSWERS]-(answer:Answer {id:a.answer_id})
-        SET answer.is_accepted = a.is_accepted,
-            answer.score = a.score,
-            answer.creation_date = datetime({epochSeconds:a.creation_date}),
-            answer.body = a.body_markdown,
-            answer.embedding = a.embedding
-        MERGE (answerer:User {id:coalesce(a.owner.user_id, "deleted")}) 
-        ON CREATE SET answerer.display_name = a.owner.display_name,
-                      answerer.reputation= a.owner.reputation
-        MERGE (answer)<-[:PROVIDED]-(answerer)
-    )
-    WITH * WHERE NOT q.owner.user_id IS NULL
-    MERGE (owner:User {id:q.owner.user_id})
-    ON CREATE SET owner.display_name = q.owner.display_name,
-                  owner.reputation = q.owner.reputation
-    MERGE (owner)-[:ASKED]->(question)
-    """
 
-retrieval_query = """
-// Start from vector search result variables: `node`, `score`
-WITH node, score
-// Route any node type to related Question(s) via UNION branches to avoid implicit grouping
-CALL {
-  WITH node
-  // If node is a Question, use it directly
-  WITH node
-  MATCH (q:Question)
-  WHERE node:Question AND elementId(q) = elementId(node)
-  RETURN q
-  UNION
-  // If node is an Answer, route to its Question
-  WITH node
-  MATCH (node:Answer)-[:ANSWERS]->(q:Question)
-  RETURN q
-  UNION
-  // If node is a Tag, route to Questions tagged with it
-  WITH node
-  MATCH (q:Question)-[:TAGGED]->(node:Tag)
-  RETURN q
-  UNION
-  // If node is a User, include Questions they asked
-  WITH node
-  MATCH (node:User)-[:ASKED]->(q:Question)
-  RETURN q
-  UNION
-  // If node is a User, include Questions they answered
-  WITH node
-  MATCH (node:User)-[:PROVIDED]->(:Answer)-[:ANSWERS]->(q:Question)
-  RETURN q
-}
-WITH DISTINCT q AS question, node, score
+def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
+    """Format chat history for inclusion in the prompt."""
+    try:
+        if not chat_history:
+            return ""
 
-// Community detection: compute overlap and optionally filter to same community when available
-WITH
-  question,
-  node,
-  score,
-  any(x IN coalesce(question.CommunityId, []) WHERE x IN coalesce(node.CommunityId, [])) AS sameCommunity,
-  (size(coalesce(question.CommunityId, [])) > 0 AND size(coalesce(node.CommunityId, [])) > 0) AS bothHaveCommunity
-WHERE NOT bothHaveCommunity OR sameCommunity
+        formatted_history = []
+        for msg in chat_history:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user":
+                formatted_history.append(f"User: {content}")
+            elif role == "assistant":
+                # Only include the main content, not the thought process
+                formatted_history.append(f"Assistant: {content}")
 
-// Build rich context for each question
-// Core question data
-WITH DISTINCT question, score, sameCommunity,
-     coalesce(question.CommunityId, []) AS qComm,
-     coalesce(node.CommunityId, []) AS nComm,
-     {
-  id: question.id,
-  title: question.title,
-  body: question.body,
-  link: question.link,
-  score: question.score,
-  favorite_count: question.favorite_count,
-  creation_date: toString(question.creation_date)
-} AS questionDetails
+        return "\n".join(formatted_history)
+    except Exception as e:
+        logger.error(f"Error formatting chat history: {e}")
+        return ""
 
-// Askers
-OPTIONAL MATCH (asker:User)-[:ASKED]->(question)
-WITH question, score, sameCommunity, qComm, nComm, questionDetails, {
-  id: asker.id,
-  display_name: asker.display_name,
-  reputation: asker.reputation
-} AS askerDetails
-
-// Tags
-OPTIONAL MATCH (question)-[:TAGGED]->(tag:Tag)
-WITH question, score, sameCommunity, qComm, nComm, questionDetails, askerDetails,
-     COLLECT(DISTINCT tag.name) AS tags
-
-// Answers + providers
-OPTIONAL MATCH (answer:Answer)-[:ANSWERS]->(question)
-OPTIONAL MATCH (provider:User)-[:PROVIDED]->(answer)
-WITH question, score, sameCommunity, qComm, nComm, questionDetails, askerDetails, tags,
-     COLLECT(DISTINCT {
-       id: answer.id,
-       body: answer.body,
-       score: answer.score,
-       is_accepted: answer.is_accepted,
-       creation_date: toString(answer.creation_date),
-       provided_by: {
-         id: provider.id,
-         display_name: provider.display_name,
-         reputation: provider.reputation
-       }
-     }) AS answers
-
-// Final projection
-RETURN
-  'Title: ' + coalesce(question.title, '') + '\\nBody: ' + coalesce(question.body, '') AS text,
-  {
-    question_details: questionDetails,
-    asked_by: askerDetails,
-    tags: tags,
-    answers: {
-      answers: answers
-    },
-    community: {
-      questionCommunityId: qComm,
-      nodeCommunityId: nComm,
-      sameCommunity: sameCommunity
-    },
-    simscore: score
-  } AS metadata,
-  score
-ORDER BY score DESC
-LIMIT 50
-"""
 
 # Create vector stores with error handling
 try:

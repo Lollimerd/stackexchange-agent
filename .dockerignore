@@ -1,8 +1,3 @@
-# ===========================================================================================================================================================
-# Root-level .dockerignore — used when build context is project root (.)
-# Only pyproject.toml, uv.lock, and backend/ are needed by the backend Dockerfile
-# ===========================================================================================================================================================
-
 # --- Python artifacts ---
 **/__pycache__
 **/*.py[cod]
@@ -10,37 +5,50 @@
 **/.pytest_cache
 **/.mypy_cache
 **/.ruff_cache
+**/.ipynb_checkpoints
 
-# --- Virtual environments (largest exclusion ~GBs) ---
+# --- Virtual environments (CRITICAL: .venv is 15GB) ---
 .venv
 **/.venv
+env/
+venv/
+ENV/
 
-# --- Frontend — not needed by backend image ---
+# --- Frontend (Excluding from backend build) ---
 frontend/
 
 # --- Archive / scratch directories ---
 archive/
+tmp/
 
 # --- Dev tooling and IDE ---
 .vscode/
+.idea/
 .pre-commit-config.yaml
 .python-version
+pyrightconfig.json
+*.swp
+*.swo
 
 # --- VCS ---
 .git
 .gitignore
 .gitattributes
 
-# --- Secrets and env files (never bake into image) ---
+# --- Secrets and env files ---
 .env
-.env.example
+.env.local
+.env.*.local
+*.pem
+*.key
 
 # --- Documentation and planning ---
 README.md
 plan.excalidraw
 *.md
+docs/
 
-# --- Docker files themselves (no need to include) ---
+# --- Docker files itself ---
 docker-compose.yml
 docker-compose*.yml
 **/Dockerfile*

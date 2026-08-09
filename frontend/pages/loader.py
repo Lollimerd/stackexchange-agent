@@ -149,7 +149,7 @@ def get_pages():
 def render_page():
     st.header("StackExchange Loader")
     st.subheader("Choose StackExchange tags to load into Neo4j")
-    st.caption("Go to http://localhost:7473/ to explore the graph.")
+    st.caption("Go to http://localhost:7474/ to explore the database.")
 
     site = get_site()
     tags_to_import = get_tags()

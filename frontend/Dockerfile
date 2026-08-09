@@ -1,53 +1,54 @@
 # syntax=docker/dockerfile:1
 
-# Comments are provided throughout this file to help you get started.
-# If you need more help, visit the Dockerfile reference guide at
-# https://docs.docker.com/go/dockerfile-reference/
-
-# Want to help us make this template better? Share your feedback here: https://forms.gle/ybq9Krt8jtBL3iCk7
-
-ARG PYTHON_VERSION=3.13.5
-FROM python:${PYTHON_VERSION}-slim as base
-
-# Prevents Python from writing pyc files.
-ENV PYTHONDONTWRITEBYTECODE=1
-
-# Keeps Python from buffering stdout and stderr to avoid situations where
-# the application crashes without emitting any logs due to buffering.
-ENV PYTHONUNBUFFERED=1
+# --- Builder Stage ---
+# Use the official UV image for fast dependency management
+FROM ghcr.io/astral-sh/uv:0.5.11-python3.13-bookworm-slim AS builder
 
 WORKDIR /app
 
-# Create a non-privileged user that the app will run under.
-# See https://docs.docker.com/go/dockerfile-user-best-practices/
-ARG UID=10001
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/home/appuser" \
-    --shell "/sbin/nologin" \
-    --uid "${UID}" \
-    appuser
+# Enable bytecode compilation and set link mode to copy for virtualenv portability
+ENV UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy
 
-# Create cache directory for Streamlit and other dependencies
-RUN mkdir -p /home/appuser/.cache /home/appuser/.streamlit && chown -R appuser:appuser /home/appuser
-
-# Download dependencies as a separate step to take advantage of Docker's caching.
-# Leverage a cache mount to /root/.cache/pip to speed up subsequent builds.
-# Leverage a bind mount to requirements.txt to avoid having to copy them into
-# into this layer.
-RUN --mount=type=cache,target=/root/.cache/pip \
+# Install dependencies into a virtualenv using a cache mount for speed
+RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=requirements.txt,target=requirements.txt \
-    python -m pip install -r requirements.txt
+    uv venv /opt/venv && \
+    VIRTUAL_ENV=/opt/venv uv pip install -r requirements.txt
 
-# Switch to the non-privileged user to run the application.
-USER appuser
+# --- Final Stage ---
+# Use a slim Python image for the lightweight frontend
+FROM python:3.13-slim-bookworm
 
-# Copy the source code into the container.
+# Environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:$PATH"
+
+WORKDIR /app
+
+# Create a non-privileged user for security
+ARG UID=10001
+RUN useradd --create-home --shell /bin/bash --uid "${UID}" appuser
+
+# Copy the virtualenv from the builder stage
+COPY --from=builder /opt/venv /opt/venv
+
+# Prepare Streamlit cache and config directories
+RUN mkdir -p /home/appuser/.cache /home/appuser/.streamlit && \
+    chown -R appuser:appuser /home/appuser
+
+# Copy application source code (from the frontend/ context)
 COPY . .
 
-# Expose the port that the application listens on.
+# Ensure appuser owns the application files
+RUN chown -R appuser:appuser /app
+
+# Switch to the non-privileged user
+USER appuser
+
+# Expose Streamlit's default port
 EXPOSE 8501
 
-# Run the application.
-CMD streamlit run web.py --server.address=0.0.0.0
+# Run Streamlit
+CMD ["streamlit", "run", "web.py", "--server.address=0.0.0.0"]

@@ -1,221 +1,315 @@
+# StackExchange GraphRAG Agent
 
------
+> A private RAG-powered technical Q&A agent backed by a Neo4j knowledge graph and local LLMs.
 
-# StackExchange GraphRAG Chatbot
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Python](https://img.shields.io/badge/python-3.13+-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.53+-red)
 
-This project is a sophisticated agentic Graph-based Retrieval-Augmented Generation (GraphRAG) application. It leverages a Neo4j graph database to store and query StackExchange data (like StackOverflow), a FastAPI backend to handle logic, and a multi-featured Streamlit UI for user interaction. The system can answer questions by retrieving relevant context from the knowledge graph and synthesizing answers using a local LLM hosted via Ollama.
+---
 
-## ✨ Features
+## 🚀 Quick Start
 
-  * **Advanced GraphRAG Pipeline**: Moves beyond simple vector search by using an `EnsembleRetriever` to pull context from `Question`, `Answer`, `User`, and `Tag` nodes in the graph.  
-  
-  * **Rich Context Retrieval**: A `custom Cypher query` fetches not just the relevant question but also its associated `answers`, `tags`, and `user details`, providing rich, interconnected context to the LLM.
-  
-  * **Streaming Responses**: The backend streams the LLM's response directly to the UI for a real-time, ChatGPT-like experience.
-  
-  * **Visible Agent Thoughts**: The LLM is prompted to "think" before answering. This thought process is captured and displayed in a collapsible expander in the UI, providing transparency into the agent's reasoning.
-  
-  * **Interactive Multi-Chat UI**: The Streamlit frontend supports multiple, independent chat sessions. Users can `create`, `delete`, and `switch` between chats, with history saved for each session.
-  
-  * **Dynamic Data Ingestion**: A "Stackoverflow Loader" tab in the UI allows users to pull data directly from the `Stack Exchange API` by `tag` or by `top-voted questions` and load it into the Neo4j database.
-  * **Graph Explorer**: An interactive visualization tool (`neo4j_explorer.py`) to navigate the knowledge graph, filter by `node/relationship` types, and focus on specific entities.
-  * **Analytics Dashboard**: A dedicated dashboard (`dashboard.py`) tracking import history, database statistics, and trends over time.
-  * **Dockerized Deployment**: Fully containerized setup using Docker Compose, orchestrating the FastAPI backend, Streamlit frontend, Neo4j database, and Ollama services.
-  * **Configuration Display**: The UI fetches and displays key configuration details (like the Ollama model and Neo4j connection info) from the backend.
+```bash
+# 1. Pull required models
+ollama pull qwen3.5:4b
+ollama pull snowflake-arctic-embed2
+
+# 2. Configure environment
+cp .env.example .env
+# Edit .env with your Neo4j credentials
+
+# 3. Run everything
+./run.sh
+```
+
+**Access the app:** `http://localhost:8510`
+
+---
+
+## 📋 What It Does
+
+This agent answers technical questions by:
+
+1. **Retrieving** relevant context from a Neo4j graph (Questions, Answers, Users, Tags)
+2. **Reranking** results for relevance
+3. **Generating** detailed answers with visible reasoning
+
+Data is sourced from the **Stack Exchange API** and embedded locally—nothing leaves your machine.
+
+---
 
 ## 🏗️ Architecture
 
 ```mermaid
 graph TD
-    User([User])
-    subgraph Frontend [Streamlit UI]
-        Chat[Chat Interface]
-        Loader[Data Loader]
-        Explorer[Graph Explorer]
-        Dash[Dashboard]
-    end
-
-    subgraph Backend [FastAPI Server]
-        API[API Endpoints]
-        Planner[GraphRAG Planner]
-        Retriever[Ensemble Retriever]
-    end
-
-    subgraph Data [Data Layer]
-        Neo4j[(Neo4j Graph DB)]
-        Ollama[[Ollama LLM]]
-        SE_API[StackExchange API]
-    end
-
-    User --> Chat
-    User --> Loader
-    User --> Explorer
-    User --> Dash
-
-    Chat <-->|Stream/Think| API
-    Loader -->|Import Request| API
-    Explorer -->|Query| Neo4j
-    Dash -->|Stats| Neo4j
-
-    API --> Planner
-    Planner -->|Search| Retriever
-    Retriever <-->|Vector + Graph| Neo4j
-    Planner <-->|Generate| Ollama
+    User([User]) --> Streamlit[Streamlit Frontend<br/>:8510]
+    Streamlit <-->|SSE Stream| FastAPI[FastAPI Backend<br/>:8000]
     
-    Loader -.->|Fetch Data| SE_API
-    Loader -->|Embed & Store| Neo4j
+    FastAPI --> Agent[GraphRAG Agent]
+    Agent --> Tools[graph_rag_tool]
+    Tools --> Retriever[Ensemble Retriever<br/>Hybrid Search]
+    Retriever <--> Neo4j[(Neo4j Graph DB<br/>:7474, :7687)]
+    Agent --> LLM[Ollama LLM<br/>:11430]
+    
+    Loader[Data Loader] -.->|Fetch| SE[Stack Exchange API]
+    Loader -->|Embed + Store| Neo4j
+    
+    style Streamlit fill:#ff4b4b,color:#fff
+    style FastAPI fill:#009688,color:#fff
+    style Neo4j fill:#018bff,color:#fff
+    style LLM fill:#ffa500,color:#000
 ```
 
-The application is composed of three main components that work together:
+### Components
 
-1.  **Neo4j Database**: The knowledge graph that stores StackExchange data (Questions, Answers, Users, Tags) and their relationships. Vector indexes are created on nodes for efficient similarity search.
-2.  **FastAPI Backend (`backend/app/backend.py`)**:
-      * Exposes an `/agent/ask` endpoint that receives a user's question.
-      * Embeds the question and uses a LangChain `EnsembleRetriever` to perform a hybrid search across multiple Neo4j vector indexes.
-      * Executes a detailed Cypher query to retrieve a rich subgraph of context around the matched questions.
-      * Formats the retrieved context and the user's question into a prompt for the LLM.
-      * Streams the generated response back to the client, using special tags (`<|THINK_START|>`, `<|THINK_END|>`) to delineate the model's thought process from the final answer.
-      * Provides a `/api/v1/config` endpoint for the frontend.
-3.  **Streamlit Frontend (`frontend/web.py`)**:
-      * Provides the user interface for chatting.
-      * Manages multiple chat sessions, including history.
-      * Sends user queries to the FastAPI backend and processes the streamed response.
-      * Parses the special "think" tags to separate and display the agent's reasoning in an expander.
-      * Includes a data loader tab that allows users to populate the Neo4j database directly from the Stack Exchange API.
+| Service | Port | Description |
+|---------|------|-------------|
+| **Streamlit Frontend** | 8510 | Multi-chat UI with graph explorer & dashboard |
+| **FastAPI Backend** | 8000 | Agent orchestration, streaming, ingestion |
+| **Neo4j** | 7474, 7687 | Knowledge graph with vector indexes |
+| **Ollama** | 11430 | Local LLM inference |
+
+---
+
+## 🧠 Models Used
+
+| Model | Purpose | Context |
+|-------|---------|---------|
+| `qwen3.5:4b` | Main chat & reasoning | 128K |
+| `qwen3.5:0.8b` | Chat history summarization | 40K |
+| `snowflake-arctic-embed2` | Embeddings | 8K |
+| `BAAI/bge-reranker-base` | Document reranking | - |
+
+---
+
+## ✨ Features
+
+### Core
+- **GraphRAG Pipeline** — Hybrid search across Question, Answer, User, and Tag nodes
+- **Streaming Responses** — Real-time token-by-token generation
+- **Visible Reasoning** — Agent thoughts displayed in expandable sections
+- **Multi-Chat Support** — Independent sessions with persistent history
+
+### Data & Visualization
+- **StackExchange Loader** — Import by tag or top-voted questions
+- **Graph Explorer** — Interactive Neo4j visualization
+- **Analytics Dashboard** — Import history & database statistics
+
+### Privacy
+- **100% Local** — All models run via Ollama
+- **No External Calls** — Except Stack Exchange API for imports
+
+---
 
 ## 🛠️ Tech Stack
 
-  * **Backend**: FastAPI, LangChain, Uvicorn
-  * **Frontend**: Streamlit
-  * **Database**: Neo4j (via `langchain-neo4j`)
-  * **LLM & Embeddings**: Ollama (e.g., `qwen3:1.7b`, `bge-m3`)
-  * **Core Libraries**: `requests`, `python-dotenv`
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-1.  **Python 3.9+**: Ensure you have a recent version of Python installed.
-2.  **Neo4j Database**: A running Neo4j instance (AuraDB, Docker, or local install).
-3.  **Ollama**: Ollama must be installed and running.
-      * Pull the required models:
-        ```bash
-        ollama pull qwen3:1.7b
-        ollama pull bge-m3
-        ```
-
-### 1\. Clone the Repository
-
-```bash
-git clone <your-repo-url>
-cd <your-repo-name>
+```
+Backend:  FastAPI, LangChain, Uvicorn, Neo4j
+Frontend: Streamlit, Mermaid
+LLM:      Ollama (qwen3.5, snowflake-arctic-embed2)
+Infra:    Docker Compose, Neo4j (APOC + GDS plugins)
 ```
 
-### 2\. Install Dependencies
+---
 
-It's recommended to use a virtual environment.
-
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
-pip install -r requirements.txt
-```
-
-*(Note: A `requirements.txt` file should be created from the imports in the provided scripts.)*
-
-### 3\. Configure Environment Variables
-
-Create a `.env` file in the root of the project by copying the `.env.example` template.
-
-**.env.example**
-
-```env
-# Neo4j Connection Details
-NEO4J_URL="bolt://localhost:7687"
-NEO4J_USER="neo4j"
-NEO4J_PASS="your_neo4j_password"
-
-# Ollama Connection
-OLLAMA_BASE_URL="http://localhost:11434"
-```
-
-Fill in the `.env` file with your actual Neo4j and Ollama details.
-
-### 4\. Run the Application
-
-The provided `run.sh` script will run both the backend and frontend services concurrently.
-
-```bash
-chmod +x run.sh
-./run.sh
-```
-
-Alternatively, you can run them in separate terminals:
-
-  * **Terminal 1: Start the FastAPI Backend**
-    ```bash
-    cd backend
-    python -m app.backend
-    ```
-  * **Terminal 2: Start the Streamlit Frontend**
-    ```bash
-    cd frontend
-    streamlit run web.py
-    ```
-
-### 5\. Load Data and Chat
-
-1.  Open your browser and navigate to the Streamlit URL (usually `http://localhost:8501`).
-2.  Go to the **"Stackoverflow loader"** tab.
-3.  Enter a tag (e.g., `python`, `neo4j`) and the number of pages to import.
-4.  Click **"Import"**. This will fetch data from the Stack Exchange API, generate embeddings, and populate your Neo4j database. This may take a few minutes.
-5.  Once the import is complete, navigate back to the **"Custom Bot"** tab and start asking questions\!
-
-## 📂 File Structure
+## 📦 Project Structure
 
 ```
 .
 ├── backend/
+│   ├── agent/              # LangChain agent & middleware
 │   ├── app/
-│   │   └── backend.py      # FastAPI backend server with the core GraphRAG logic.
-│   ├── tools/              # Custom LangChain tools (e.g., graph_rag_chain).
-│   ├── utils/              # Backend utility functions.
-│   └── requirements.txt    # Backend dependencies.
+│   │   └── backend.py      # FastAPI server & endpoints
+│   ├── tools/              # graph_rag_tool implementation
+│   ├── utils/              # DB functions, memory management
+│   └── setup/              # Model & graph initialization
+│
 ├── frontend/
-│   ├── web.py              # Main Streamlit frontend application.
+│   ├── web.py              # Main chat interface
 │   ├── pages/
-│   │   ├── dashboard.py    # Analytics dashboard page.
-│   │   ├── loader.py       # StackExchange data ingestion page.
-│   │   └── neo4j_explorer.py # Graph visualization page.
-│   ├── utils/              # Frontend utility functions.
-│   └── requirements.txt    # Frontend dependencies.
-├── run.sh                  # Convenience script to run backend and frontend.
-├── docker-compose.yml      # Docker coordination for app, db, and llm.
-└── .env                    # (You create this) Secret keys and configuration.
+│   │   ├── loader.py       # Data ingestion UI
+│   │   ├── neo4j_explorer.py
+│   │   └── dashboard.py
+│   └── utils/
+│
+├── docker-compose.yml      # Service orchestration
+├── pyproject.toml          # Python dependencies
+└── run.sh                  # Dev launcher
 ```
 
-## 🧠 How It Works: A Deeper Dive
+---
 
-#### 1\. Data Ingestion (`frontend/pages/loader.py`)
+## ⚙️ Configuration
 
-When you use the loader UI, the application calls the Stack Exchange API. For each question and its answers, it:
+### Environment Variables
 
-1.  Concatenates the title and body to form a single text block.
-2.  Uses the `OllamaEmbeddings` class (`bge-m3` model) to generate a vector embedding for the text.
-3.  Executes a single, powerful Cypher query (`UNWIND $data AS q...`) to efficiently batch-create all the `Question`, `Answer`, `User`, and `Tag` nodes and their relationships (`:ANSWERS`, `:TAGGED`, etc.) in Neo4j.
+Create a `.env` file:
 
-#### 2\. Retrieval (`backend/app/backend.py`)
+```bash
+# Neo4j
+NEO4J_URL=bolt://localhost:7687
+NEO4J_USERNAME=neo4j
+NEO4J_PASSWORD=your_password_here
 
-This is the core of the "GraphRAG" process.
+# Stack Exchange API (optional, for higher rate limits)
+STACKEXCHANGE_API_KEY=your_key_here
+```
 
-1.  **Ensemble Retrieval**: Instead of relying on one vector index, we initialize four `Neo4jVector.from_existing_graph` retrievers, one for each main node type. The `EnsembleRetriever` combines the results from all four, providing a more diverse set of initial candidate nodes.
-2.  **Custom Cypher Injection**: The `retrieval_query` is the most critical part. When a retriever finds a candidate node (e.g., a `Question` node via vector search), this query doesn't just return that node's text. Instead, it uses the node as an entry point to explore the graph. It traverses relationships to gather the asker's details, all associated tags, and a collection of all answers with their providers' details.
-3.  **Structured Output**: The query formats this rich subgraph information into a structured `metadata` JSON object, which is attached to the LangChain `Document`.
+### Ollama Setup
 
-#### 3\. Generation & Streaming (`backend/app/backend.py` & `frontend/web.py`)
+```bash
+# Required models
+ollama pull qwen3.5:4b
+ollama pull snowflake-arctic-embed2
 
-1.  The retrieved `Documents` (with their rich metadata) are formatted into a single context string by `format_docs_with_metadata`.
-2.  This context is inserted into a prompt that explicitly instructs the LLM to first think step-by-step inside `<think></think>` tags and then provide the final answer.
-3.  The FastAPI backend uses `astream` to get a token-by-token stream from the LLM.
-4.  As chunks of text arrive, a buffer is used to detect the special `<|THINK_START|>` and `<|THINK_END|>` tags.
-5.  The Streamlit frontend consumes this stream, directing content to either the "Agent Thoughts" expander or the main answer placeholder based on whether the stream is currently inside a "thinking" block. This creates a seamless and transparent user experience.
+# Optional (for summarization)
+ollama pull qwen3.5:0.8b
+```
+
+---
+
+## 🎯 API Endpoints
+
+### Chat & Agent
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/agent/ask` | POST | Stream agent responses (SSE) |
+| `/api/v1/chat/{id}` | GET/DELETE | Fetch/delete chat history |
+| `/api/v1/users` | GET | List all users |
+
+### Data Ingestion
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/ingest` | POST | Import StackExchange data |
+| `/api/v1/ingest/record` | POST/PUT/DELETE | Manage import sessions |
+
+### Analytics
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/stats/summary` | GET | Database statistics |
+| `/api/v1/stats/history` | GET | Import history |
+| `/api/v1/graph/search` | GET | Search nodes |
+| `/api/v1/graph/sample` | POST | Graph sample for visualization |
+
+---
+
+## 🔍 How GraphRAG Works
+
+### 1. Data Ingestion
+```
+Stack Exchange API → Embed (snowflake-arctic-embed2) → Neo4j
+```
+Questions, answers, users, and tags are stored as nodes with relationships:
+- `(:User)-[:ASKED]->(:Question)`
+- `(:Question)<-[:ANSWERS]-(:Answer)`
+- `(:Question)-[:TAGGED]->(:Tag)`
+- `(:Answer)<-[:PROVIDED]-(:User)`
+
+### 2. Retrieval
+```
+User Question → Embed → Hybrid Search (Vector + BM25) → Rerank → Context
+```
+- **4 vector indexes** (Question, Answer, User, Tag)
+- **EnsembleRetriever** combines results
+- **Cross-encoder reranking** for relevance
+
+### 3. Generation
+```
+Context + Prompt → qwen3.5:4b → Streamed Response
+```
+Agent prompted to:
+1. Think step-by-step (captured separately)
+2. Generate Mermaid diagrams when helpful
+3. Provide technically precise answers
+
+---
+
+## 🐳 Docker Deployment
+
+```bash
+docker compose up -d
+```
+
+**Services:**
+- `ollama` — LLM inference with GPU passthrough
+- `graphDB` — Neo4j with APOC & GDS plugins
+- `backend-server` — FastAPI with NVIDIA GPU access
+- `frontend` — Streamlit UI
+
+**Volumes:**
+- `ollama_data` — Persistent model storage
+- `neo4j_stackoverflow_data` — Graph database
+
+---
+
+## 📊 Neo4j Schema
+
+### Node Labels
+- `Question` — title, body, score, creation_date, embedding
+- `Answer` — body, score, is_accepted, embedding
+- `User` — display_name, reputation
+- `Tag` — name
+- `Session` — chat session metadata
+- `Message` — conversation history
+- `ImportLog` — ingestion tracking
+
+### Relationships
+```
+(User)-[:ASKED]->(Question)
+(Question)<-[:ANSWERS]-(Answer)
+(Question)-[:TAGGED]->(Tag)
+(Answer)<-[:PROVIDED]-(User)
+(Session)-[:HAS_MESSAGE]->(Message)
+```
+
+---
+
+## 🧪 Development
+
+### Run Backend (dev)
+```bash
+cd backend
+python -m app.backend
+```
+
+### Run Frontend (dev)
+```bash
+cd frontend
+streamlit run web.py
+```
+
+### Run Tests
+```bash
+pytest
+```
+
+---
+
+## 🤝 Contributing
+
+1. Fork the repo
+2. Create a feature branch
+3. Make your changes
+4. Submit a PR
+
+---
+
+## 📝 License
+
+MIT License — see LICENSE for details.
+
+---
+
+## 🙏 Acknowledgments
+
+- **Stack Exchange** — Data API
+- **Neo4j** — Graph database
+- **Ollama** — Local LLM runtime
+- **LangChain** — Agent framework
+- **Streamlit** — Rapid UI development
+
+---
+
+**Built with ❤️ using local LLMs**

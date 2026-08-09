@@ -1,53 +1,59 @@
 # syntax=docker/dockerfile:1
 
-# Comments are provided throughout this file to help you get started.
-# If you need more help, visit the Dockerfile reference guide at
-# https://docs.docker.com/go/dockerfile-reference/
+# Use NVIDIA CUDA runtime as the base to ensure full GPU support for ONNX/TensorRT
+FROM nvidia/cuda:12.8.0-runtime-ubuntu24.04
 
-# Want to help us make this template better? Share your feedback here: https://forms.gle/ybq9Krt8jtBL3iCk7
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH="/app" \
+    DEBIAN_FRONTEND=noninteractive
 
-ARG PYTHON_VERSION=3.13.5
-FROM python:${PYTHON_VERSION}-slim as base
+# Install Python 3.13 and minimal runtime deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    software-properties-common curl git && \
+    add-apt-repository ppa:deadsnakes/ppa -y && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    python3.13 \
+    python3.13-venv \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Prevents Python from writing pyc files.
-ENV PYTHONDONTWRITEBYTECODE=1
+# Link python3 to python3.13
+RUN ln -sf /usr/bin/python3.13 /usr/bin/python3 && \
+    ln -sf /usr/bin/python3.13 /usr/bin/python
 
-# Keeps Python from buffering stdout and stderr to avoid situations where
-# the application crashes without emitting any logs due to buffering.
-ENV PYTHONUNBUFFERED=1
-
+# Set working directory
 WORKDIR /app
 
-# Create a non-privileged user that the app will run under.
-# See https://docs.docker.com/go/dockerfile-user-best-practices/
+# Get uv for lightning-fast system-wide installation
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
+
+# Install dependencies system-wide to avoid venv/shebang issues in a container
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=backend/requirements.txt,target=backend/requirements.txt \
+    uv pip install --system -r backend/requirements.txt
+
+# Create a non-privileged user for security
 ARG UID=10001
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/home/appuser" \
-    --shell "/sbin/nologin" \
-    --uid "${UID}" \
-    appuser
+RUN useradd --create-home --shell /bin/bash --uid "${UID}" appuser
 
-# Create cache directory for HuggingFace models
-RUN mkdir -p /home/appuser/.cache && chown -R appuser:appuser /home/appuser
+# Prepare cache directories for HuggingFace
+RUN mkdir -p /home/appuser/.cache/huggingface && chown -R appuser:appuser /home/appuser
 
-# Download dependencies as a separate step to take advantage of Docker's caching.
-# Leverage a cache mount to /root/.cache/pip to speed up subsequent builds.
-# Leverage a bind mount to requirements.txt to avoid having to copy them into
-# into this layer.
-RUN --mount=type=cache,target=/root/.cache/pip \
-    --mount=type=bind,source=requirements.txt,target=requirements.txt \
-    python -m pip install -r requirements.txt
-
-# Switch to the non-privileged user to run the application.
-USER appuser
-
-# Copy the source code into the container.
+# Copy application source code (filtered by .dockerignore)
 COPY . .
 
-# Expose the port that the application listens on.
+# Ensure appuser owns the application files
+RUN chown -R appuser:appuser /app
+
+# Switch to the non-privileged user
+USER appuser
+
+# Expose FastAPI port
 EXPOSE 8000
 
-# Run the application.
-CMD uvicorn 'app.backend:app' --host=0.0.0.0 --port=8000
+# Run the backend using 'python3 -m uvicorn' to ensure the correct interpreter is used
+# This avoids the "required file not found" shebang issue.
+WORKDIR /app/backend
+CMD ["python3", "-m", "uvicorn", "app.backend:app", "--host", "0.0.0.0", "--port", "8000"]
