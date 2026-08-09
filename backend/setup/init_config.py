@@ -26,7 +26,7 @@ def answer_LLM():
     return ChatOllama(
         model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=32768,  # 32k context
+        num_ctx=262144,
         num_predict=4096,  # max tokens in answer
         temperature=0.7,  # more creative
         repeat_penalty=1.5,  # higher, penalise repetitions
@@ -48,7 +48,7 @@ def cypher_LLM():
     return ChatOllama(
         model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=32768,   # Cypher prompts are short; no need for 32k
+        num_ctx=262144,
         num_predict=1024,  # Cypher queries are concise
         temperature=0.0,  # fully deterministic — critical for valid Cypher
         top_p=1.0,
