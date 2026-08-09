@@ -22,7 +22,7 @@ CALL {
   // If node is a Question, use it directly
   WITH node
   MATCH (q:Question)
-  WHERE node:Question AND id(q) = id(node)
+  WHERE node:Question AND element.id(q) = element.id(node)
   RETURN q
   UNION
   // If node is an Answer, route to its Question
@@ -52,15 +52,15 @@ WITH
   question,
   node,
   score,
-  any(x IN coalesce(question.communityId, []) WHERE x IN coalesce(node.communityId, [])) AS sameCommunity,
-  (size(coalesce(question.communityId, [])) > 0 AND size(coalesce(node.communityId, [])) > 0) AS bothHaveCommunity
+  any(x IN coalesce(question.CommunityId, []) WHERE x IN coalesce(node.CommunityId, [])) AS sameCommunity,
+  (size(coalesce(question.CommunityId, [])) > 0 AND size(coalesce(node.CommunityId, [])) > 0) AS bothHaveCommunity
 WHERE NOT bothHaveCommunity OR sameCommunity
 
 // Build rich context for each question
 // Core question data
 WITH DISTINCT question, score, sameCommunity,
-     coalesce(question.communityId, []) AS qComm,
-     coalesce(node.communityId, []) AS nComm,
+     coalesce(question.CommunityId, []) AS qComm,
+     coalesce(node.CommunityId, []) AS nComm,
      {
   id: question.id,
   title: question.title,
