@@ -46,6 +46,26 @@ st.set_page_config(
 if "chats" not in st.session_state:
     st.session_state.chats = {}  # Initialize empty first
 
+
+# Helper function to get the active chat object
+def get_active_chat():
+    """Get the active chat data, creating it if necessary."""
+    chat_id = st.session_state.active_chat_id
+    if chat_id not in st.session_state.chats:
+        # Fallback if somehow ID is missing
+        return None
+
+    chat = st.session_state.chats[chat_id]
+
+    # Lazy load history if not loaded yet
+    if not chat.get("loaded", False):
+        msgs = fetch_chat_history(chat_id)
+        chat["messages"] = msgs
+        chat["loaded"] = True
+
+    return chat
+
+
 # --- sidebar init ---
 with st.sidebar:
     try:
@@ -53,6 +73,27 @@ with st.sidebar:
     except Exception as e:
         logger.error(f"Error displaying container info: {e}")
         st.warning("Could not connect to backend for system info")
+
+    # --- System Info ---
+    with st.expander("System Info & DB Details", expanded=False):
+        try:
+            config_data = get_system_config()
+            if config_data and isinstance(config_data, dict):
+                st.markdown(
+                    f"**Ollama Model:** `{config_data.get('ollama_model', 'N/A')}`"
+                )
+                st.markdown(f"**Neo4j URL:** `{config_data.get('neo4j_url', 'N/A')}`")
+                st.markdown(
+                    f"**DB connected:** `{config_data.get('container_name', 'N/A')}`"
+                )
+                st.markdown(f"**Neo4j User:** `{config_data.get('neo4j_user', 'N/A')}`")
+                if config_data.get("status") != "success":
+                    st.warning("⚠️ Some services may not be connected")
+            else:
+                st.error("Could not retrieve system info - backend may be offline")
+        except Exception as e:
+            logger.error(f"Error in system info: {e}")
+            st.error(f"Error: {str(e)[:100]}")
 
     st.sidebar.title("⚙️ Settings", help="config settings here")
 
@@ -103,78 +144,39 @@ with st.sidebar:
             st.session_state.active_chat_id = None
             st.rerun()
 
-# Logic to load chats if empty (initial load or name change)
-if not st.session_state.chats and st.session_state.get("user_name"):
-    backend_chats = fetch_user_chats(st.session_state.user_name)
-    for chat in backend_chats:
-        s_id = chat.get("session_id")
-        last_msg = chat.get("last_message", "New Chat")
-        title = (last_msg[:30] + "...") if last_msg else "New Chat"
+    # Logic to load chats if empty (initial load or name change)
+    if not st.session_state.chats and st.session_state.get("user_name"):
+        backend_chats = fetch_user_chats(st.session_state.user_name)
+        for chat in backend_chats:
+            s_id = chat.get("session_id")
+            last_msg = chat.get("last_message", "New Chat")
+            title = (last_msg[:15] + "...") if last_msg else "New Chat"
 
-        if s_id:  # Only add if we have a valid session_id
-            st.session_state.chats[s_id] = {
-                "title": title,
+            if s_id:  # Only add if we have a valid session_id
+                st.session_state.chats[s_id] = {
+                    "title": title,
+                    "messages": [],
+                    "loaded": False,
+                    "thoughts": [],
+                }
+
+    if (
+        "active_chat_id" not in st.session_state
+        or st.session_state.active_chat_id is None
+    ):
+        # If we have chats from DB, pick the first one (most recent)
+        if st.session_state.chats:
+            st.session_state.active_chat_id = list(st.session_state.chats.keys())[0]
+        else:
+            # Create a default first chat if DB is empty
+            first_chat_id = str(uuid.uuid4())
+            st.session_state.active_chat_id = first_chat_id
+            st.session_state.chats[first_chat_id] = {
+                "title": "New Chat",
                 "messages": [],
-                "loaded": False,
+                "thoughts": [],
+                "loaded": True,
             }
-
-if "active_chat_id" not in st.session_state or st.session_state.active_chat_id is None:
-    # If we have chats from DB, pick the first one (most recent)
-    if st.session_state.chats:
-        st.session_state.active_chat_id = list(st.session_state.chats.keys())[0]
-    else:
-        # Create a default first chat if DB is empty
-        first_chat_id = str(uuid.uuid4())
-        st.session_state.active_chat_id = first_chat_id
-        st.session_state.chats[first_chat_id] = {
-            "title": "New Chat",
-            "messages": [],
-            "thoughts": [],
-            "loaded": True,
-        }
-
-
-# Helper function to get the active chat object
-def get_active_chat():
-    """Get the active chat data, creating it if necessary."""
-    chat_id = st.session_state.active_chat_id
-    if chat_id not in st.session_state.chats:
-        # Fallback if somehow ID is missing
-        return None
-
-    chat = st.session_state.chats[chat_id]
-
-    # Lazy load history if not loaded yet
-    if not chat.get("loaded", False):
-        msgs = fetch_chat_history(chat_id)
-        chat["messages"] = msgs
-        chat["loaded"] = True
-
-    return chat
-
-
-# --- Sidebar UI elements (System Info & Chat List) ---
-with st.sidebar:
-    # --- System Info ---
-    with st.expander("System Info & DB Details", expanded=False):
-        try:
-            config_data = get_system_config()
-            if config_data and isinstance(config_data, dict):
-                st.markdown(
-                    f"**Ollama Model:** `{config_data.get('ollama_model', 'N/A')}`"
-                )
-                st.markdown(f"**Neo4j URL:** `{config_data.get('neo4j_url', 'N/A')}`")
-                st.markdown(
-                    f"**DB connected:** `{config_data.get('container_name', 'N/A')}`"
-                )
-                st.markdown(f"**Neo4j User:** `{config_data.get('neo4j_user', 'N/A')}`")
-                if config_data.get("status") != "success":
-                    st.warning("⚠️ Some services may not be connected")
-            else:
-                st.error("Could not retrieve system info - backend may be offline")
-        except Exception as e:
-            logger.error(f"Error in system info: {e}")
-            st.error(f"Error: {str(e)[:100]}")
 
     # --- Chat Management UI ---
     st.subheader("Chats", help="navigate your chats here")
@@ -230,8 +232,10 @@ with st.sidebar:
 
         with col2:
             # Button to select the chat
+            # Handle possible missing keys safely
+            title_label = chat_data.get("title", "New Chat")
             if st.button(
-                chat_data["title"],
+                title_label,
                 key=f"chat_button_{chat_id}",
                 use_container_width=True,
                 disabled=(chat_id == st.session_state.active_chat_id),
