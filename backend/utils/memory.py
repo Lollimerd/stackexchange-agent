@@ -71,7 +71,7 @@ def add_user_message_to_session(session_id: str, content: str):
         logger.error(f"Error adding user message to session {session_id}: {e}")
 
 
-def add_ai_message_to_session(session_id: str, content: str, thought: str = None):
+def add_ai_message_to_session(session_id: str, content: str, thought: str):
     """
     Adds an AI message to the session and explicitly creates a HAS_MESSAGE relationship.
     Also stores the reasoning/thought process if provided.
@@ -127,7 +127,7 @@ def get_all_sessions():
         return []
 
 
-def link_session_to_user(session_id: str, user_id: str, topic: str = None):
+def link_session_to_user(session_id: str, user_id: str, topic: str):
     """
     Links a session to an AppUser. Creates the user if not exists.
     Optionally stores the conversation topic for the session.

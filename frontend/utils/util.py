@@ -66,6 +66,32 @@ def delete_user_api(user_id):
         st.warning(f"Could not delete user: {str(e)[:50]}")
 
 
+def delete_import_log_api(import_id):
+    """Delete an import log."""
+    try:
+        response = requests.delete(f"{BACKEND_URL}/api/v1/ingest/record/{import_id}", timeout=5)
+        response.raise_for_status()
+        logger.info(f"Import log {import_id} deleted")
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error deleting import log {import_id}: {e}")
+        st.error(f"Could not delete import log: {str(e)[:100]}")
+        return False
+
+
+def update_import_log_api(import_id, data):
+    """Update an import log."""
+    try:
+        response = requests.put(f"{BACKEND_URL}/api/v1/ingest/record/{import_id}", json=data, timeout=5)
+        response.raise_for_status()
+        logger.info(f"Import log {import_id} updated")
+        return True
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error updating import log {import_id}: {e}")
+        st.error(f"Could not update import log: {str(e)[:100]}")
+        return False
+
+
 def fetch_user_chats(user_id, retry_count=2):
     """Fetch user's chat sessions with retry logic."""
     for attempt in range(retry_count):
@@ -216,11 +242,11 @@ def render_message_with_mermaid(content, key_suffix=""):
 
     for i, part in enumerate(parts):
         part = part.strip()
-        
+
         if part.lower().startswith("```mermaid"):
             # Extract mermaid code by removing fences
             mermaid_code = part.removeprefix("```mermaid").removesuffix("```").strip()
-            
+
             if mermaid_code:
                 try:
                     st_mermaid(mermaid_code, height=500)

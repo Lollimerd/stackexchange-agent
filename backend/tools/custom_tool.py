@@ -7,14 +7,23 @@ from setup.init import (
 )
 
 from langchain_classic.retrievers.ensemble import EnsembleRetriever
-from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
-from langchain_classic.retrievers.document_compressors.cross_encoder_rerank import CrossEncoderReranker
-from typing import List, Dict
+
+from langchain_classic.retrievers.document_compressors.cross_encoder_rerank import (
+    CrossEncoderReranker,
+)
+from langchain_core.runnables import RunnablePassthrough, RunnableLambda
+from typing import List, Dict, Optional, Type
 from langchain_core.documents import Document
 from prompts.st_overflow import analyst_prompt
-from langchain_core.runnables import RunnablePassthrough
 from utils.util import format_docs_with_metadata, escape_lucene_chars
+from langchain_core.tools import BaseTool
+from langchain_core.callbacks import (
+    CallbackManagerForToolRun,
+    AsyncCallbackManagerForToolRun,
+)
+from pydantic import BaseModel, Field
 import logging
+
 
 logger = logging.getLogger(__name__)
 
@@ -128,7 +137,7 @@ RETURN
   } AS metadata,
   score
 ORDER BY score DESC
-LIMIT 50
+LIMIT 20
 """
 
 # Create vector stores with error handling
@@ -161,31 +170,32 @@ except Exception as e:
 # ===========================================================================================================================================================
 
 
-# setting up retrievers from vectorstores with custom tailormade finetuning
-def retrieve_context(question: str) -> List[Document]:
-    """
-    Retrieve context from the ensemble retriever based on the user's question.
-
-    Returns:
-        List[Document]: A list of LangChain Document objects, where each document has:
-            - page_content (str): The main text content (e.g., question title and body).
-            - metadata (dict): Structured metadata including question details, user info, tags, answers, and similarity score.
-    """
+# Split retrieval into steps for observability
+def retrieve_raw_docs(question: str) -> List[Document]:
+    """Step 1: Graph Traversal & Ensemble Retrieval"""
     try:
         # Define the common search arguments once
         common_search_kwargs = {
-            "k": 20,
+            "k": 20,  # Increased initial pool: wider net across all entity types
+            "score_threshold": 0.9,  # Slightly lowered to ensure we catch cross-domain links
+            "fetch_k": 100,  # Number of candidates for the initial vector search
+            "lambda_mult": 0.5,  # Balanced weight between Vector and Full-text
             "params": {
                 "embedding": EMBEDDINGS.embed_query(question),
                 "keyword_query": escape_lucene_chars(question),
             },
-            "fetch_k": 100,
-            "score_threshold": 0.95,
-            "lambda_mult": 0.5,
         }
 
-        # Use a list of vectorstores
-        vectorstores = [tagstore, userstore, questionstore, answerstore]
+        # Use a list of vectorstores, filtering out any that failed to initialize
+        vectorstores = [
+            s
+            for s in [tagstore, userstore, questionstore, answerstore]
+            if s is not None
+        ]
+
+        if not vectorstores:
+            logger.warning("No vector stores available for retrieval")
+            return []
 
         # Create the retrievers using a list comprehension
         retrievers = [
@@ -196,23 +206,57 @@ def retrieve_context(question: str) -> List[Document]:
             for store in vectorstores
         ]
 
+        # Calculate equal weights dynamically
+        num_retrievers = len(retrievers)
+        weights = [1.0 / num_retrievers] * num_retrievers
+
         # init ensemble retriever
         ensemble_retriever = EnsembleRetriever(
             retrievers=retrievers,
+            weights=weights,
         )
 
-        logger.info("Retrieving and reranking dynamic context")
-        # Wrap your ensemble retriever with the compression retriever.
-        compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor, base_retriever=ensemble_retriever
-        )
-
-        reranked_docs = compression_retriever.invoke(question)
-        logger.info(f"Retrieved {len(reranked_docs)} documents")
-        return reranked_docs
+        logger.info(f"--- 🌐 GLOBAL RETRIEVAL: {question} ---")
+        docs = ensemble_retriever.invoke(question)
+        logger.info(f"Graph Traversal Complete. Found {len(docs)} documents.")
+        return docs
     except Exception as e:
-        logger.error(f"Error retrieving context: {e}")
-        # Return empty list instead of crashing
+        logger.error(f"Error in retrieve_raw_docs: {e}")
+        return []
+
+
+def rerank_docs(inputs: Dict) -> List[Document]:
+    """Step 2: Reranking"""
+    try:
+        docs = inputs.get("docs", [])
+        question = inputs.get("question", "")
+
+        RELEVANCY_THRESHOLD = 0.95
+
+        if not docs:
+            return []
+
+        logger.info(f"Reranking {len(docs)} documents...")
+        reranked_docs = compressor.compress_documents(documents=docs, query=question)
+
+        # ✨ RELEVANCE GUARDRAIL: Filter by score
+        high_quality_docs = [
+            doc
+            for doc in reranked_docs
+            if doc.metadata.get("relevance_score", 1.0) >= RELEVANCY_THRESHOLD
+        ]
+
+        # Handle Low-Confidence Situations
+        if not high_quality_docs:
+            logger.warning(
+                f"⚠️ GUARDRAIL TRIGGERED: No docs met threshold {RELEVANCY_THRESHOLD}"
+            )
+            return []  # Returns empty context to trigger LLM fallback
+
+        logger.info(f"✅ {len(high_quality_docs)} docs passed relevancy guardrail.")
+        return high_quality_docs
+    except Exception as e:
+        logger.error(f"Error in rerank_docs: {e}")
         return []
 
 
@@ -236,6 +280,18 @@ def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
     except Exception as e:
         logger.error(f"Error formatting chat history: {e}")
         return ""
+
+
+def check_context_presence(input_dict: Dict) -> Dict:
+    """Adds a system flag if the guardrail blocked all documents."""
+    context = input_dict.get("context", "")
+    # Check if our specific content delimiter is present
+    if not context or "--------- CONTENT ---------" not in context:
+        input_dict["context"] = (
+            "[SYSTEM NOTE: NO RELEVANT DATA FOUND IN KNOWLEDGE GRAPH]"
+        )
+        logger.info("Context fallback applied: No relevant data found.")
+    return input_dict
 
 
 def process_with_topic_analysis(input_dict: Dict) -> Dict:
@@ -290,13 +346,17 @@ def process_with_topic_analysis(input_dict: Dict) -> Dict:
         }
 
 
+retrieval_chain = RunnablePassthrough.assign(
+    docs=lambda x: RunnableLambda(retrieve_raw_docs)
+    .with_config(run_name="GraphTraversal")
+    .invoke(x["question"])
+) | RunnableLambda(rerank_docs).with_config(run_name="Reranking")
+
 # This chain is activated for GraphRAG.
 try:
     graph_rag_chain = (
         RunnablePassthrough.assign(
-            context=lambda x: format_docs_with_metadata(
-                retrieve_context(x["question"])
-            ),
+            context=retrieval_chain | format_docs_with_metadata,
             chat_history_formatted=lambda x: format_chat_history(
                 x.get("chat_history", [])
             ),
@@ -310,3 +370,68 @@ try:
 except Exception as e:
     logger.error(f"Error initializing GraphRAG chain: {e}")
     raise
+
+
+class GraphRAGInput(BaseModel):
+    """Input for the GraphRAG tool."""
+
+    question: str = Field(description="The question to ask the knowledge base")
+    chat_history: List[Dict] = Field(
+        description="Previous chat history context", default=[]
+    )
+    session_topic: str = Field(
+        description="Current session topic for continuity", default=""
+    )
+    session_id: str = Field(description="Unique session identifier", default="")
+
+
+class GraphRAGTool(BaseTool):
+    """Tool that queries the GraphRAG knowledge base."""
+
+    name: str = "graph_rag_tool"
+    description: str = "Retrieves information from the graph database to answer questions with topic continuity analysis."
+    args_schema: Type[BaseModel] = GraphRAGInput
+
+    def _run(
+        self,
+        question: str,
+        chat_history: List[Dict] = [],
+        session_topic: str = "",
+        session_id: str = "",
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        """Execute the tool synchronously."""
+        result = graph_rag_chain.invoke(
+            {
+                "question": question,
+                "chat_history": chat_history,
+                "session_topic": session_topic,
+                "session_id": session_id,
+            },
+            config={"callbacks": run_manager.get_child() if run_manager else None},
+        )
+        return str(result.content)
+
+    async def _arun(
+        self,
+        question: str,
+        chat_history: List[Dict] = [],
+        session_topic: str = "",
+        session_id: str = "",
+        run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
+    ) -> str:
+        """Execute the tool asynchronously."""
+        result = await graph_rag_chain.ainvoke(
+            {
+                "question": question,
+                "chat_history": chat_history,
+                "session_topic": session_topic,
+                "session_id": session_id,
+            },
+            config={"callbacks": run_manager.get_child() if run_manager else None},
+        )
+        return str(result.content)
+
+
+# Initialize the tool
+graph_rag_tool = GraphRAGTool()

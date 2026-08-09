@@ -91,7 +91,6 @@ services:
     build:
       context: ./frontend
     container_name: streamlit-frontend
-    user: root
     ports:
       - 8501:8501
     environment:

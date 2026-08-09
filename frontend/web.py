@@ -313,107 +313,164 @@ else:
                 st.markdown(prompt)
 
             with st.chat_message(name="Assistant"):
-                with st.spinner("Analyzing graph data..."):
+                # 1. Define Visual Layout Order via Placeholders
+                status_container_loc = st.empty()
+                thought_container_loc = st.empty()
+                answer_container_loc = st.empty()
+
+                # 2. Setup Thoughts Container (so we have a target to write to)
+                with thought_container_loc.container():
                     thought_container = st.expander(
                         "Show Agent Thoughts", expanded=True
                     )
-                    thought_placeholder = thought_container.empty()
+                    with thought_container:
+                        thought_placeholder = st.empty()
+
+                # 3. Setup Answer Placeholder target
+                with answer_container_loc.container():
                     answer_placeholder = st.empty()
-                    thought_content = ""
-                    answer_content = ""
 
-                    try:
-                        timeout = httpx.Timeout(300, read=300)
-                        with httpx.Client(timeout=timeout) as client:
-                            # Send request with session_id (history is now handled by backend)
-                            with connect_sse(
-                                client,
-                                "POST",
-                                FASTAPI_URL,
-                                json={
-                                    "question": prompt,
-                                    "session_id": st.session_state.active_chat_id,
-                                    "user_id": st.session_state.get("user_name", ""),
-                                },
-                            ) as event_source:
-                                for sse in event_source.iter_sse():
-                                    if sse.data:
-                                        try:
-                                            # Parse the JSON payload from the SSE event
-                                            data = json.loads(sse.data)
+                thought_content = ""
+                answer_content = ""
 
-                                            # Append chunks to full strings
-                                            chunk_content = data.get("content", "")
-                                            chunk_thought = data.get(
-                                                "reasoning_content", ""
-                                            )
+                # 4. Run Logic inside Status Container (Visual position #1)
+                with status_container_loc.container():
+                    with st.status(
+                        "🚀 Initializing Agent...", expanded=True
+                    ) as status_box:
+                        try:
+                            timeout = httpx.Timeout(300, read=300)
+                            with httpx.Client(timeout=timeout) as client:
+                                with connect_sse(
+                                    client,
+                                    "POST",
+                                    FASTAPI_URL,
+                                    json={
+                                        "question": prompt,
+                                        "session_id": st.session_state.active_chat_id,
+                                        "user_id": st.session_state.get(
+                                            "user_name", ""
+                                        ),
+                                    },
+                                ) as event_source:
+                                    for sse in event_source.iter_sse():
+                                        if sse.data:
+                                            try:
+                                                data = json.loads(sse.data)
+                                                msg_type = data.get("type")
 
-                                            answer_content += chunk_content
-                                            thought_content += chunk_thought
+                                                # --- Handle Status Events ---
+                                                if msg_type == "status":
+                                                    stage = data.get("stage")
+                                                    message = data.get("message", "")
+                                                    status_state = data.get("status")
 
-                                            # Display the current accumulated output in the UI
-                                            if answer_content:
-                                                answer_placeholder.markdown(
-                                                    answer_content + "▌"
+                                                    # Update the container label to show current activity
+                                                    status_box.update(
+                                                        label=message, state="running"
+                                                    )
+
+                                                    if status_state == "running":
+                                                        st.info(message, icon="🔄")
+                                                    elif status_state == "complete":
+                                                        st.success(message, icon="✅")
+
+                                                # --- Handle Token Events ---
+                                                elif msg_type == "token":
+                                                    # Collapse status box once generation starts
+                                                    status_box.update(
+                                                        label="✅ Analysis Complete. Generating Response...",
+                                                        state="complete",
+                                                        expanded=False,
+                                                    )
+
+                                                    chunk_content = data.get(
+                                                        "content", ""
+                                                    )
+                                                    chunk_thought = data.get(
+                                                        "reasoning_content", ""
+                                                    )
+
+                                                    answer_content += chunk_content
+                                                    thought_content += chunk_thought
+
+                                                    # Render Answer
+                                                    if answer_content:
+                                                        answer_placeholder.markdown(
+                                                            answer_content + "▌"
+                                                        )
+
+                                                    # Render Thoughts
+                                                    if thought_content:
+                                                        thought_placeholder.markdown(
+                                                            thought_content + "▌"
+                                                        )
+
+                                                # --- Handle Errors ---
+                                                elif msg_type == "error":
+                                                    status_box.update(
+                                                        label="❌ Error Occurred",
+                                                        state="error",
+                                                        expanded=True,
+                                                    )
+                                                    st.error(
+                                                        data.get(
+                                                            "content", "Unknown error"
+                                                        )
+                                                    )
+
+                                            except json.JSONDecodeError as e:
+                                                logger.error(
+                                                    f"Error decoding JSON: {sse.data}"
                                                 )
-                                            if thought_content:
-                                                thought_placeholder.markdown(
-                                                    thought_content + "▌"
-                                                )
+                                                continue
 
-                                        except json.JSONDecodeError as e:
-                                            logger.error(
-                                                f"Error decoding JSON: {sse.data}"
-                                            )
-                                            st.error(f"Decoding error: {str(e)[:100]}")
-                                            continue
+                            # --- Final Processing and Rendering ---
+                            # Remove type cursors and render final markdown/mermaid
+                            answer_placeholder.empty()
+                            thought_placeholder.empty()
 
-                        # --- Final Processing and Rendering ---
-                        # Remove type cursors and render final markdown/mermaid
-                        answer_placeholder.empty()
-                        thought_placeholder.empty()
+                            with thought_container:
+                                if thought_content:
+                                    render_message_with_mermaid(
+                                        thought_content, key_suffix="stream-thought"
+                                    )
+                                else:
+                                    st.info("No agent thoughts captured")
 
-                        with thought_container:
-                            if thought_content:
+                            if answer_content:
                                 render_message_with_mermaid(
-                                    thought_content, key_suffix="stream-thought"
+                                    answer_content, key_suffix="stream-content"
                                 )
                             else:
-                                st.info("No agent thoughts captured")
+                                st.warning("No response content received")
 
-                        if answer_content:
-                            render_message_with_mermaid(
-                                answer_content, key_suffix="stream-content"
+                            # Append the final response to the active chat's message list
+                            active_chat["messages"].append(
+                                {
+                                    "role": "assistant",
+                                    "thought": thought_content,
+                                    "content": answer_content,
+                                }
                             )
-                        else:
-                            st.warning("No response content received")
+                            st.rerun()  # Rerun to update the chat list in the sidebar if the title changed
 
-                        # Append the final response to the active chat's message list
-                        active_chat["messages"].append(
-                            {
-                                "role": "assistant",
-                                "thought": thought_content,
-                                "content": answer_content,
-                            }
-                        )
-                        st.rerun()  # Rerun to update the chat list in the sidebar if the title changed
-
-                    except httpx.TimeoutException as e:
-                        logger.error(f"Request timeout: {e}")
-                        st.error(
-                            "The request timed out. The server is taking too long to respond. Please try again later."
-                        )
-                    except requests.exceptions.ConnectionError as e:
-                        logger.error(f"Connection error: {e}")
-                        st.error(
-                            f"Could not connect to the API at {BACKEND_URL}. Is the backend running?"
-                        )
-                    except requests.exceptions.RequestException as e:
-                        logger.error(f"Request exception: {e}")
-                        st.error(f"API Error: {str(e)[:200]}")
-                    except Exception as e:
-                        logger.error(f"Unexpected error: {e}")
-                        st.error(f"Unexpected error: {str(e)[:200]}")
+                        except httpx.TimeoutException as e:
+                            logger.error(f"Request timeout: {e}")
+                            st.error(
+                                "The request timed out. The server is taking too long to respond. Please try again later."
+                            )
+                        except requests.exceptions.ConnectionError as e:
+                            logger.error(f"Connection error: {e}")
+                            st.error(
+                                f"Could not connect to the API at {BACKEND_URL}. Is the backend running?"
+                            )
+                        except requests.exceptions.RequestException as e:
+                            logger.error(f"Request exception: {e}")
+                            st.error(f"API Error: {str(e)[:200]}")
+                        except Exception as e:
+                            logger.error(f"Unexpected error: {e}")
+                            st.error(f"Unexpected error: {str(e)[:200]}")
 
     # --- Auto-Scroll to Bottom ---
     components.html(

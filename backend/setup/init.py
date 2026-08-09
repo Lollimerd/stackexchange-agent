@@ -4,6 +4,7 @@ import os, json, time
 from dotenv import load_dotenv
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_neo4j import Neo4jGraph, Neo4jVector
+from langchain_neo4j.vectorstores.neo4j_vector import SearchType
 from typing_extensions import List, TypedDict
 from typing import Dict, Optional
 from langchain_core.documents import Document
@@ -82,7 +83,6 @@ class GraphState(TypedDict):
 # Creation of vector index, vectorstores and fulltext for hybrid vector search
 # ===========================================================================================================================================================
 
-
 def create_vector_stores(graph, EMBEDDINGS, retrieval_query) -> Dict[str, Neo4jVector]:
     """
     Creates Neo4jVector stores from an existing graph using a data-driven approach.
@@ -145,7 +145,7 @@ def create_vector_stores(graph, EMBEDDINGS, retrieval_query) -> Dict[str, Neo4jV
             embedding_node_property="embedding",
             index_name=index_name,
             keyword_index_name=keyword_index_name,
-            search_type="hybrid",
+            search_type=SearchType.HYBRID,
             text_node_properties=config["text_node_properties"],
             retrieval_query=retrieval_query,
         )

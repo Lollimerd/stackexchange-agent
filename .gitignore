@@ -9,4 +9,8 @@ __init__.py
 .venv/
 *.bak
 *.txt
+# Exception: Do NOT ignore requirements.txt
+!requirements.txt
 logs.py
+tests/
+.mypy_cache/

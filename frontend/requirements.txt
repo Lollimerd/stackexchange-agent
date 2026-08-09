@@ -1,0 +1,12 @@
+streamlit
+streamlit_mermaid
+streamlit_timeline
+st_pages
+httpx
+httpx-sse
+requests
+plotly
+pandas
+python-dotenv
+pyvis
+langchain_neo4j

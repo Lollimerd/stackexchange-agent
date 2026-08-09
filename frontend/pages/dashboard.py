@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.express as px
 from dotenv import load_dotenv
 from langchain_neo4j import Neo4jGraph
-from utils.util import get_database_summary, get_import_history, display_container_name
+from utils.util import get_database_summary, get_import_history, display_container_name, update_import_log_api, delete_import_log_api
 
 # Load environment variables
 load_dotenv()
@@ -132,18 +132,98 @@ def render_page():
                     lambda x: x.strftime("%Y-%m-%d %H:%M") if hasattr(x, 'strftime') else str(x)[:16]
                 )
             
-            # Display as table
-            st.dataframe(
-                df[['formatted_time', 'questions', 'tags', 'pages', 'tags_list']].rename(columns={
+            # Display as interactive editor
+            edited_df = st.data_editor(
+                df[['id', 'formatted_time', 'questions', 'tags', 'pages', 'tags_list']].rename(columns={
                     'formatted_time': 'Date',
                     'questions': 'Questions',
                     'tags': 'Tags',
                     'pages': 'Pages',
                     'tags_list': 'Tag List'
                 }),
+                key="import_history_editor",
                 use_container_width=True,
-                hide_index=True
+                hide_index=True,
+                column_config={
+                    "id": None,  # Hide ID column
+                    "Date": st.column_config.DatetimeColumn(
+                        "Date",
+                        disabled=True,
+                    ),
+                    "Tag List": st.column_config.ListColumn(
+                        "Tag List",
+                        help="List of tags imported",
+                    )
+                },
+                disabled=["Date", "Tags"],  # Disable editing of date and calculated tags count
+                num_rows="dynamic"  # Allow adding/deleting rows (we only handle deletion)
             )
+
+            # Handle changes
+            if st.session_state.get("import_history_editor"):
+                changes = st.session_state["import_history_editor"]
+                
+                # Handle updates
+                for index, updates in changes.get("edited_rows", {}).items():
+                    # Get the ID from the original dataframe 
+                    # Note: index is the row index in the displayed dataframe
+                    row_id = df.iloc[index]['id']
+                    
+                    # Synthesize new data
+                    current_row = df.iloc[index].to_dict()
+                    
+                    # Map column names back to internal names for updates
+                    col_map_inv = {
+                        'Questions': 'total_questions',
+                        'Tags': 'total_tags', 
+                        'Pages': 'total_pages',
+                        'Tag List': 'tags_list'
+                    }
+                    
+                    update_data = {}
+                    for col, val in updates.items():
+                        if col in col_map_inv:
+                            update_data[col_map_inv[col]] = val
+                    
+                    # We might need other fields if the backend expects a full object, 
+                    # but our backend endpoint accepts partial updates via params matching ImportRecordRequest structure?
+                    # Wait, ImportRecordRequest is:
+                    # class ImportRecordRequest(BaseModel):
+                    #     total_questions: int
+                    #     tags_list: List[str]
+                    #     total_pages: int
+                    
+                    # The backend update endpoint expects a full ImportRecordRequest object.
+                    # So we need to reconstruct the full object from existing + updates.
+                    
+                    full_payload = {
+                        "total_questions": update_data.get("total_questions", current_row.get("questions")),
+                        "tags_list": update_data.get("tags_list", current_row.get("tags_list")),
+                        "total_pages": update_data.get("total_pages", current_row.get("pages"))
+                    }
+
+                    if update_import_log_api(row_id, full_payload):
+                        st.success(f"Updated row {index + 1}")
+                        st.rerun()
+
+                # Handle deletions
+                # st.data_editor with num_rows="fixed" prevents deletion via UI (delete key). 
+                # To support deletion we need num_rows="dynamic" to allow deletions, 
+                # BUT that also allows adding rows which we said we didn't want essentially?
+                # Actually, `num_rows="dynamic"` allows adding and deleting.
+                # If we want ONLY delete, that's tricky with standard data_editor.
+                # A common pattern is adding a "Delete" checkbox column or similar.
+                # Or just allowing dynamic and ignoring additions (or validating them).
+                
+                # Let's try to stick to the plan: "allow user to update, modify or delete".
+                # If I use num_rows="dynamic", user can delete.
+                
+                for index in changes.get("deleted_rows", []):
+                     row_id = df.iloc[index]['id']
+                     if delete_import_log_api(row_id):
+                         st.success(f"Deleted row {index + 1}")
+                         st.rerun()
+
             
             # Create visualization
             if len(df) > 1:

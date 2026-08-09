@@ -1,27 +1,42 @@
 # main.py
-import asyncio, os, json, uvicorn, logging
+import asyncio
 from datetime import datetime
-from typing import AsyncGenerator, List, Dict
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+import json
+import logging
+import os
+import time
+from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse
+import uuid
+
 from dotenv import load_dotenv
-from utils.util import find_container_by_port
-from setup.init import ANSWER_LLM, NEO4J_URL, NEO4J_USERNAME, NEO4J_PASSWORD
-from tools.custom_tool import graph_rag_chain
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+import uvicorn
+
+from setup.init import (
+    ANSWER_LLM,
+    EMBEDDINGS,
+    NEO4J_PASSWORD,
+    NEO4J_URL,
+    NEO4J_USERNAME,
+    graph,
+)
+from tools.custom_tool import graph_rag_tool
 from utils.memory import (
+    add_ai_message_to_session,
+    add_user_message_to_session,
+    delete_session,
+    delete_user,
+    get_all_users,
     get_chat_history,
     get_user_sessions,
     link_session_to_user,
-    get_all_users,
-    delete_session,
-    delete_user,
-    add_user_message_to_session,
-    add_ai_message_to_session,
 )
 from utils.topic_manager import TopicManager
+from utils.util import find_container_by_port
 
 # Load environment variables
 load_dotenv()
@@ -55,6 +70,16 @@ class QueryRequest(BaseModel):
     user_id: str = ""
 
 
+class IngestRequest(BaseModel):
+    data: List[Dict]
+
+
+class ImportRecordRequest(BaseModel):
+    total_questions: int
+    tags_list: List[str]
+    total_pages: int
+
+
 @app.get("/")
 def index():
     return {"status": "online", "message": "Welcome to the GraphRAG API"}
@@ -72,7 +97,7 @@ def get_configuration():
     """Provides frontend with configuration details for display."""
     try:
         parsed_url = urlparse(NEO4J_URL)
-        neo4j_port = parsed_url.port
+        neo4j_port = parsed_url.port or 7687
         neo4j_host = parsed_url.hostname
         discovered_name = find_container_by_port(neo4j_port)
 
@@ -182,6 +207,160 @@ def delete_app_user(user_id: str):
         return {"status": "error", "message": str(e)}
 
 
+# ===========================================================================================================================================================
+# Ingestion Endpoints
+# ===========================================================================================================================================================
+
+import_query = """
+    UNWIND $data AS q
+    MERGE (question:Question {id:q.question_id}) 
+    ON CREATE SET question.title = q.title, question.link = q.link, question.score = q.score,
+        question.favorite_count = q.favorite_count, question.creation_date = datetime({epochSeconds: q.creation_date}),
+        question.body = q.body_markdown, question.embedding = q.embedding
+    FOREACH (tagName IN q.tags | 
+        MERGE (tag:Tag {name:tagName}) 
+        MERGE (question)-[:TAGGED]->(tag)
+    )
+    FOREACH (a IN q.answers |
+        MERGE (question)<-[:ANSWERS]-(answer:Answer {id:a.answer_id})
+        SET answer.is_accepted = a.is_accepted,
+            answer.score = a.score,
+            answer.creation_date = datetime({epochSeconds:a.creation_date}),
+            answer.body = a.body_markdown,
+            answer.embedding = a.embedding
+        MERGE (answerer:User {id:coalesce(a.owner.user_id, "deleted")}) 
+        ON CREATE SET answerer.display_name = a.owner.display_name,
+                      answerer.reputation= a.owner.reputation
+        MERGE (answer)<-[:PROVIDED]-(answerer)
+    )
+    WITH * WHERE NOT q.owner.user_id IS NULL
+    MERGE (owner:User {id:q.owner.user_id})
+    ON CREATE SET owner.display_name = q.owner.display_name,
+                  owner.reputation = q.owner.reputation
+    MERGE (owner)-[:ASKED]->(question)
+    """
+
+
+@app.post("/api/v1/ingest")
+async def ingest_stackoverflow_data(request: IngestRequest):
+    """Ingest StackOverflow data: compute embeddings and insert into Neo4j."""
+    try:
+        data_items = request.data
+        if not data_items:
+            return {"status": "skipped", "message": "No data items to ingest."}
+
+        # Use a separate thread for the heavy lifting (embeddings + DB)
+        def process_ingestion(items):
+            # 1. Compute embeddings
+            for q in items:
+                # Combine title and body for the question embedding
+                question_text = q.get("title", "") + "\n" + q.get("body_markdown", "")
+                q["embedding"] = EMBEDDINGS.embed_query(question_text)
+                # Sleep a tiny bit to be nice to Ollama if needed, though requests are sequential here
+                time.sleep(0.1)
+
+                for a in q.get("answers", []):
+                    answer_text = question_text + "\n" + a.get("body_markdown", "")
+                    a["embedding"] = EMBEDDINGS.embed_query(answer_text)
+                    time.sleep(0.1)
+
+            # 2. Insert into Neo4j
+            graph.query(import_query, {"data": items})
+            return len(items)
+
+        count = await asyncio.to_thread(process_ingestion, data_items)
+
+        return {"status": "success", "count": count}
+
+    except Exception as e:
+        logger.error(f"Error during ingestion: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.post("/api/v1/ingest/record")
+async def record_import_session(request: ImportRecordRequest):
+    """Record an import session in Neo4j."""
+    try:
+        import_id = str(uuid.uuid4())
+        timestamp = datetime.now().isoformat()
+
+        query = """
+        CREATE (log:ImportLog {
+            id: $import_id,
+            timestamp: datetime($timestamp),
+            total_questions: $total_questions,
+            total_tags: $total_tags,
+            total_pages: $total_pages,
+            tags_list: $tags_list
+        })
+        """
+
+        params = {
+            "import_id": import_id,
+            "timestamp": timestamp,
+            "total_questions": request.total_questions,
+            "total_tags": len(request.tags_list),
+            "total_pages": request.total_pages,
+            "tags_list": request.tags_list,
+        }
+
+        # Run query in thread
+        await asyncio.to_thread(graph.query, query, params)
+
+        return {"status": "success", "import_id": import_id}
+    except Exception as e:
+        logger.error(f"Error recording import session: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.put("/api/v1/ingest/record/{import_id}")
+async def update_import_session(import_id: str, request: ImportRecordRequest):
+    """Update an existing import session in Neo4j."""
+    try:
+        query = """
+        MATCH (log:ImportLog {id: $import_id})
+        SET log.total_questions = $total_questions,
+            log.total_tags = $total_tags,
+            log.total_pages = $total_pages,
+            log.tags_list = $tags_list
+        RETURN log
+        """
+
+        params = {
+            "import_id": import_id,
+            "total_questions": request.total_questions,
+            "total_tags": len(request.tags_list),
+            "total_pages": request.total_pages,
+            "tags_list": request.tags_list,
+        }
+
+        # Run query in thread
+        await asyncio.to_thread(graph.query, query, params)
+
+        return {"status": "success", "message": f"Import session {import_id} updated"}
+    except Exception as e:
+        logger.error(f"Error updating import session: {e}")
+        return {"status": "error", "message": str(e)}
+
+
+@app.delete("/api/v1/ingest/record/{import_id}")
+async def delete_import_session(import_id: str):
+    """Delete an import session from Neo4j."""
+    try:
+        query = """
+        MATCH (log:ImportLog {id: $import_id})
+        DETACH DELETE log
+        """
+
+        # Run query in thread
+        await asyncio.to_thread(graph.query, query, {"import_id": import_id})
+
+        return {"status": "success", "message": f"Import session {import_id} deleted"}
+    except Exception as e:
+        logger.error(f"Error deleting import session: {e}")
+        return {"status": "error", "message": str(e)}
+
+
 # --- ✨ REFACTORED: Streaming Endpoint with Thinking Handler ---
 # FIX: Use asyncio.to_thread to prevent Neo4j blocking from blocking event loop
 
@@ -207,7 +386,7 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
             topic = request.question if is_first_message else None
 
             await asyncio.to_thread(
-                link_session_to_user, request.session_id, request.user_id, topic
+                link_session_to_user, request.session_id, request.user_id, topic or ""
             )
 
             # Get chat history and current topic
@@ -270,60 +449,110 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
 
         try:
             # Pass both session_id and topic to the chain
-            async for chunk in graph_rag_chain.astream(
+            async for event in graph_rag_tool.astream_events(
                 {
                     "question": request.question,
                     "chat_history": formatted_history,
                     "session_topic": session_topic,
                     "session_id": request.session_id,
                 },
+                version="v2",
             ):
-                # Extract content and reasoning
-                content_chunk = (
-                    chunk.content if hasattr(chunk, "content") else str(chunk)
-                )
-                reasoning_chunk = (
-                    chunk.additional_kwargs.get("reasoning_content", "")
-                    if hasattr(chunk, "additional_kwargs")
-                    else ""
-                )
+                event_type = event["event"]
+                event_name = event["name"]
 
-                # FIX: Avoid O(n²) string concatenation - collect in list
-                response_chunks.append(content_chunk)
-                thought_chunks.append(reasoning_chunk)
+                # --- Status Updates ---
+                if event_type == "on_chain_start":
+                    if event_name == "GraphTraversal":
+                        yield f"data: {
+                            json.dumps(
+                                {
+                                    'type': 'status',
+                                    'stage': 'graph_traversal',
+                                    'status': 'running',
+                                    'message': '🕷️ Traversing Knowledge Graph...',
+                                }
+                            )
+                        }\n\n"
+                    elif event_name == "Reranking":
+                        yield f"data: {
+                            json.dumps(
+                                {
+                                    'type': 'status',
+                                    'stage': 'reranking',
+                                    'status': 'running',
+                                    'message': '⚖️ Reranking Documents...',
+                                }
+                            )
+                        }\n\n"
 
-                # Create a dictionary for this stream chunk
-                event_data = {
-                    "content": content_chunk,
-                    "reasoning_content": reasoning_chunk,
-                }
+                elif event_type == "on_chain_end":
+                    if event_name == "GraphTraversal":
+                        output = event["data"].get("output", [])
+                        count = len(output) if isinstance(output, list) else 0
+                        yield f"data: {json.dumps({'type': 'status', 'stage': 'graph_traversal', 'status': 'complete', 'message': f'✅ Found {count} documents', 'count': count})}\n\n"
+                    elif event_name == "Reranking":
+                        output = event["data"].get("output", [])
+                        count = len(output) if isinstance(output, list) else 0
+                        yield f"data: {json.dumps({'type': 'status', 'stage': 'reranking', 'status': 'complete', 'message': f'✅ Top {count} documents selected', 'count': count})}\n\n"
 
-                # Format as an SSE data payload
-                yield f"data: {json.dumps(event_data)}\n\n"
+                elif event_type == "on_chat_model_start":
+                    yield f"data: {json.dumps({'type': 'status', 'stage': 'thinking', 'status': 'running', 'message': '🤔 Thinking...'})}\n\n"
+
+                # --- Token Streaming ---
+                elif event_type == "on_chat_model_stream":
+                    chunk = event["data"].get("chunk")
+                    if not chunk:
+                        continue
+
+                    # Extract content and reasoning
+                    content_chunk = (
+                        chunk.content if hasattr(chunk, "content") else str(chunk)
+                    )
+                    reasoning_chunk = (
+                        chunk.additional_kwargs.get("reasoning_content", "")
+                        if hasattr(chunk, "additional_kwargs")
+                        else ""
+                    )
+
+                    # Accumulate for DB save
+                    response_chunks.append(content_chunk)
+                    thought_chunks.append(reasoning_chunk)
+
+                    # Create a dictionary for this stream chunk
+                    event_data = {
+                        "type": "token",
+                        "content": content_chunk,
+                        "reasoning_content": reasoning_chunk,
+                    }
+
+                    # Format as an SSE data payload
+                    yield f"data: {json.dumps(event_data)}\n\n"
 
         except Exception as e:
             logger.error(f"Error during streaming: {e}")
             error_event = {
+                "type": "error",
                 "content": f"[Error processing response: {str(e)}]",
                 "reasoning_content": "",
             }
             yield f"data: {json.dumps(error_event)}\n\n"
-            raise
+            # Don't raise here to allow DB save of partial response if any
 
         # Save AI response
         try:
             full_response = "".join(response_chunks)
             full_thought = "".join(thought_chunks)
-            await asyncio.to_thread(
-                add_ai_message_to_session,
-                request.session_id,
-                full_response,
-                full_thought,
-            )
-            logger.info(f"Response saved to DB: {len(full_response)} chars")
-        except Exception as e:
-            logger.warning(f"Error saving AI response: {e}")
-            logger.info(f"Response saved to DB: {len(full_response)} chars")
+
+            # Only save if we got something
+            if full_response or full_thought:
+                await asyncio.to_thread(
+                    add_ai_message_to_session,
+                    request.session_id,
+                    full_response,
+                    full_thought,
+                )
+                logger.info(f"Response saved to DB: {len(full_response)} chars")
         except Exception as e:
             logger.warning(f"Error saving AI response: {e}")
 
