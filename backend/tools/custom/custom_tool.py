@@ -12,7 +12,7 @@ from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from typing import List, Dict, Optional, Type, Any
 from langchain_core.documents import Document
 from tools.custom.cypher_src import retrieval_query
-from utils.util import format_docs_with_metadata, escape_lucene_chars
+from utils.util import format_docs_with_metadata, escape_lucene_chars, get_tool_call_count, increment_tool_call_count
 from langchain_core.tools import BaseTool
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
@@ -44,7 +44,7 @@ except Exception as e:
 try:
     compressor = CrossEncoderReranker(
         model=reranker_model(),
-        top_n=20,  # This will return the top n most relevant documents.
+        top_n=10,  # This will return the top n most relevant documents.
     )
 except Exception as e:
     logger.error(f"Error creating compressor: {e}")
@@ -196,7 +196,7 @@ class CustomRAGTool(BaseTool):
         "Retrieve relevant information from the StackOverflow knowledge graph. "
         "Use this tool whenever the user asks a technical question about software, "
         "code, errors, or any topic that may be answered from the knowledge base. "
-        "Call it at most once per user message (or twice if the initial search did not provide good results)."
+        "Call it **at most once** per user message (or **twice** if the initial search did not provide good results)."
     )
     args_schema: Type[BaseModel] = GraphRAGInput
 
@@ -210,12 +210,19 @@ class CustomRAGTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool synchronously."""
-        from utils.util import tool_call_count
-        current_count = tool_call_count.get()
+        current_count = get_tool_call_count(session_id)
         if current_count >= 2:
-            logger.warning("custom_rag_tool invocation blocked: limit of 2 reached.")
-            return "Tool usage limit of 2 reached. Do not call this tool again for this query."
-        tool_call_count.set(current_count + 1)
+            logger.warning(
+                "custom_rag_tool invocation blocked for session '%s': limit of 2 reached (count=%d).",
+                session_id, current_count,
+            )
+            return (
+                "[HARD STOP] Tool call limit reached (max 2 per query). "
+                "You have already searched the knowledge base the maximum number of times. "
+                "Do NOT call this tool again. Formulate your final answer now using what you have."
+            )
+        increment_tool_call_count(session_id)
+        logger.info("custom_rag_tool call #%d for session '%s'.", current_count + 1, session_id)
 
         result = graph_rag_chain.invoke(
             {
@@ -240,12 +247,19 @@ class CustomRAGTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool asynchronously."""
-        from utils.util import tool_call_count
-        current_count = tool_call_count.get()
+        current_count = get_tool_call_count(session_id)
         if current_count >= 2:
-            logger.warning("custom_rag_tool invocation blocked: limit of 2 reached.")
-            return "Tool usage limit of 2 reached. Do not call this tool again for this query."
-        tool_call_count.set(current_count + 1)
+            logger.warning(
+                "custom_rag_tool invocation blocked for session '%s': limit of 2 reached (count=%d).",
+                session_id, current_count,
+            )
+            return (
+                "[HARD STOP] Tool call limit reached (max 2 per query). "
+                "You have already searched the knowledge base the maximum number of times. "
+                "Do NOT call this tool again. Formulate your final answer now using what you have."
+            )
+        increment_tool_call_count(session_id)
+        logger.info("custom_rag_tool call #%d for session '%s'.", current_count + 1, session_id)
 
         result = await graph_rag_chain.ainvoke(
             {

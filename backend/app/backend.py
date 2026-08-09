@@ -36,7 +36,7 @@ from utils.db_functions import (
 )
 
 from agent.agent import stackexchange_agent
-from utils.util import find_container_by_port
+from utils.util import find_container_by_port, reset_tool_call_count
 from utils.memory import (
     add_ai_message_to_session,
     add_user_message_to_session,
@@ -470,9 +470,8 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
             f"Agent request: '{request.question[:50]}...' from user {request.user_id}"
         )
 
-        # Initialize accumulators
-        from utils.util import tool_call_count
-        tool_call_count.set(0)
+        # Reset tool call counter for this request
+        reset_tool_call_count(request.session_id)
         response_chunks = []
         response_thought_chunks = []
 

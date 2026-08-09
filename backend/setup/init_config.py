@@ -49,7 +49,7 @@ def cypher_LLM():
     return ChatOllama(
         model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=40968, # system prompt + user query + schema + retrieved docs
+        num_ctx=40960, # system prompt + user query + schema + retrieved docs
         num_predict=1024,  # Cypher queries are concise
         temperature=0.0,  # fully deterministic — critical for valid Cypher
         top_p=1.0,
@@ -90,7 +90,7 @@ def summarizer():
     return ChatOllama(
         model="qwen3.5:0.8b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=4096,  # 40k context
+        num_ctx=8192,  # 40k context
         tags=["summarizer_llm"],
     )
 
