@@ -14,16 +14,16 @@ services:
       - OLLAMA_KV_CACHE_TYPE=q4_0 # lowest vram usage
       - OLLAMA_NUM_CTX=32768 # default context window
       - OLLAMA_MAX_LOADED_MODELS=2
-      - OLLAMA_KEEP_ALIVE=300s # models will not be unloaded from gpu
+      - OLLAMA_KEEP_ALIVE=60s # models will not be unloaded from gpu
       - OLLAMA_NUM_PARALLEL=2 # no of concurrent request
     volumes:
       - ollama_data:/root/.ollama
-    restart: always
+    restart: unless-stopped
     networks:
       - app-network
     healthcheck:
       test: [ "CMD", "ollama", "list" ]
-      interval: 10s
+      interval: 300s
       timeout: 5s
       retries: 5
 
@@ -70,12 +70,12 @@ services:
 
       # --- disable telemetry
       - NEO4J_dbms_usage_report.enabled=false
-    restart: always
+    restart: unless-stopped
     networks:
       - app-network
     healthcheck:
       test: [ "CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1" ]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 10
     depends_on:
@@ -85,6 +85,8 @@ services:
     build:
       context: . # project root — gives access to pyproject.toml + uv.lock
       dockerfile: backend/Dockerfile
+    group_add:
+      - "1001" # Your host's docker group GID
     container_name: fastapi-backend
     ports:
       - 8000:8000
@@ -97,10 +99,10 @@ services:
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
       - HF_HUB_OFFLINE=1
       - HF_HOME=/home/appuser/.cache/huggingface
-    restart: always
-    user: root
+    restart: unless-stopped
+    # user: root
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      # - /var/run/docker.sock:/var/run/docker.sock
       - ~/.cache/huggingface:/home/appuser/.cache/huggingface:rw
     deploy:
       resources:
@@ -130,7 +132,7 @@ services:
     environment:
       - BACKEND_URL=http://backend-server:8000
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
-    restart: always
+    restart: unless-stopped
     networks:
       - app-network
     depends_on:

@@ -219,7 +219,4 @@ def render_page():
             except Exception as e:
                 st.warning(f"Could not record import session: {e}")
 
-            st.caption("Go to http://localhost:7473/ to interact with the database")
-
-
 render_page()

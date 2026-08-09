@@ -26,7 +26,7 @@ def answer_LLM():
     return ChatOllama(
         model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=40960,  # 40k context
+        num_ctx=32768,  # 32k context
         num_predict=16384,  # max tokens in answer
         temperature=0.7,  # more creative
         repeat_penalty=1.5,  # higher, penalise repetitions
@@ -68,7 +68,7 @@ def summarizer():
     return ChatOllama(
         model="qwen3.5:0.8b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=40960,  # 40k context
+        num_ctx=16384,  # 40k context
     )
 
 
