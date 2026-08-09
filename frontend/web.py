@@ -3,10 +3,8 @@ import json, requests, datetime, uuid, httpx, os, logging
 from httpx_sse import connect_sse
 import streamlit as st
 
-
 # from st_pages import add_page_title, get_nav_from_toml
 import streamlit.components.v1 as components
-
 
 # from streamlit_timeline import timeline
 from utils.util import (
@@ -201,7 +199,7 @@ with st.sidebar:
     chat_ids = list(st.session_state.chats.keys())
 
     # Create a container with fixed height inside the sidebar (scrollable pane)
-    chat_container = st.container(height=300, border=True)
+    chat_container = st.container(height=150, border=True)
 
     for chat_id in reversed(chat_ids):
         chat_data = st.session_state.chats[chat_id]
@@ -265,7 +263,8 @@ else:
     st.subheader(body=f"Welcome back, {st.session_state.get('user_name', 'Guest')}")
 
     # When displaying past messages from the ACTIVE chat:
-    for message in active_chat["messages"]:
+    # When displaying past messages from the ACTIVE chat:
+    for i, message in enumerate(active_chat["messages"]):
         role = message.get("role", "user")
         if role == "user":
             author_name = st.session_state.get("user_name", "User")
@@ -278,8 +277,12 @@ else:
             if role == "assistant":
                 if message.get("thought"):
                     with st.expander("Show Agent Thoughts"):
-                        render_message_with_mermaid(message["thought"])
-                render_message_with_mermaid(message.get("content", ""))
+                        render_message_with_mermaid(
+                            message["thought"], key_suffix=f"{i}-thought"
+                        )
+                render_message_with_mermaid(
+                    message.get("content", ""), key_suffix=f"{i}-content"
+                )
             else:
                 st.markdown(message.get("content", ""))
 
@@ -364,12 +367,16 @@ else:
 
                         with thought_container:
                             if thought_content:
-                                render_message_with_mermaid(thought_content)
+                                render_message_with_mermaid(
+                                    thought_content, key_suffix="stream-thought"
+                                )
                             else:
                                 st.info("No agent thoughts captured")
 
                         if answer_content:
-                            render_message_with_mermaid(answer_content)
+                            render_message_with_mermaid(
+                                answer_content, key_suffix="stream-content"
+                            )
                         else:
                             st.warning("No response content received")
 

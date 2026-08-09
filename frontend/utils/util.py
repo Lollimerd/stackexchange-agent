@@ -1,5 +1,11 @@
 import streamlit as st
-import re, hashlib, requests, uuid, json, os, logging
+import hashlib
+import json
+import logging
+import os
+import re
+import uuid
+import requests
 from streamlit_mermaid import st_mermaid
 from typing import List
 from datetime import datetime
@@ -165,6 +171,10 @@ def create_constraints(driver):
     driver.query(
         "CREATE CONSTRAINT importlog_id IF NOT EXISTS FOR (i:ImportLog) REQUIRE (i.id) IS UNIQUE"
     )
+    driver.query(
+        "CREATE CONSTRAINT session_id IF NOT EXISTS FOR (s:Session) REQUIRE (s.id) IS UNIQUE"
+    )
+
 
 
 def format_docs(docs):
@@ -200,13 +210,14 @@ def format_docs_with_metadata(docs: List[Document]) -> str:
 
 
 # --- Mermaid Rendering Function ---
-def render_message_with_mermaid(content):
+# --- Mermaid Rendering Function ---
+def render_message_with_mermaid(content, key_suffix=""):
     """Parses a message and renders Markdown and Mermaid blocks separately."""
     # Use re.split to keep the text and the diagrams in order
     # The pattern captures the mermaid block, and split keeps the delimiters
     parts = re.split(r"(```mermaid\n.*?\n```)", content, flags=re.DOTALL)
 
-    for part in parts:
+    for i, part in enumerate(parts):
         # This is a mermaid block
         if part.strip().startswith("```mermaid"):
             # Extract the code by removing the fences
@@ -214,9 +225,10 @@ def render_message_with_mermaid(content):
                 part.strip().replace("```mermaid", "").replace("```", "").strip()
             )
             if mermaid_code:
-                # Generate a unique key based on the mermaid code content only
-                # This ensures the same diagram always gets the same key
-                key = hashlib.sha256(mermaid_code.encode()).hexdigest()
+                # Generate a unique key based on the mermaid code content AND the suffix/position
+                # This ensures the same diagram always gets the same key, but different instances don't collide
+                combined_key = f"{mermaid_code}-{key_suffix}-{i}"
+                key = hashlib.sha256(combined_key.encode()).hexdigest()
                 try:
                     st_mermaid(mermaid_code, key=key)
                 except Exception as e:
