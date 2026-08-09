@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware import Middleware
+from langchain_core.messages import HumanMessage
 
 from setup.init_config import (
     answer_LLM,
@@ -23,7 +24,7 @@ from setup.init_config import (
     NEO4J_USERNAME,
 )
 
-from agent.agent import agent_executor
+from agent.agent import stackexchange_agent
 from utils.util import find_container_by_port
 from utils.memory import (
     add_ai_message_to_session,
@@ -36,18 +37,12 @@ from utils.memory import (
     link_session_to_user,
 )
 
-
 # Load environment variables
 load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-
-# ===========================================================================================================================================================
-# FastAPI Backend Server
-# ===========================================================================================================================================================
 
 # Define middleware
 middleware = [
@@ -69,7 +64,7 @@ class QueryRequest(BaseModel):
 
     question: str
     session_id: str
-    user_id: str = ""
+    user_id: str = "test_user"  # fallback
 
 
 class IngestRequest(BaseModel):
@@ -348,11 +343,14 @@ async def delete_import_session(import_id: str):
         return {"status": "error", "message": str(e)}
 
 
+# ===========================================================================================================================================================
+# Streaming Logic
+# ===========================================================================================================================================================
+
+
 @app.post("/agent/ask")
 async def agent_ask(request: QueryRequest) -> StreamingResponse:
-    """
-    Endpoint to query the new LangChain Agent with SSE streaming.
-    """
+    """Endpoint to query the new LangChain Agent with SSE streaming."""
 
     async def agent_stream_generator() -> AsyncGenerator[str]:
         logger.info(
@@ -367,7 +365,10 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
             )
             messages = chat_history_obj.messages if chat_history_obj else []
 
-            input_data = {"input": request.question, "chat_history": messages}
+            # Construct input for Graph Agent (expects 'messages' key in state)
+            # Add current user message to the history list
+            input_messages = messages + [HumanMessage(content=request.question)]
+            input_data = {"messages": input_messages}
 
             # Save user message to DB
             try:
@@ -393,7 +394,9 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
             response_chunks = []
             response_thought_chunks = []
 
-            async for event in agent_executor.astream_events(input_data, version="v2"):
+            async for event in stackexchange_agent.astream_events(
+                input_data, version="v2"
+            ):
                 event_type = event["event"]
                 event_name = event["name"]
 
