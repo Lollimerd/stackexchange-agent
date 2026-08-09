@@ -10,12 +10,12 @@ services:
     gpus: all
     pull_policy: missing
     environment:
-      - OLLAMA_FLASH_ATTENTION=1 # enable to optimize inference
-      - OLLAMA_KV_CACHE_TYPE=q4_0 # lowest vram usage
-      - OLLAMA_NUM_CTX=32768 # default context window
-      - OLLAMA_MAX_LOADED_MODELS=2 # Cypher LLM + Answer LLM fit well in 12GB VRAM
-      - OLLAMA_KEEP_ALIVE=-1 # NEVER unload models from GPU; eliminates 3-5s load time per request
-      - OLLAMA_NUM_PARALLEL=2 # no of concurrent requests
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q4_0
+      - OLLAMA_DEBUG=1
+      - OLLAMA_MAX_LOADED_MODELS=2
+      - OLLAMA_KEEP_ALIVE=-1
+      - OLLAMA_NUM_PARALLEL=2
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
@@ -29,48 +29,22 @@ services:
 
   graphDB:
     container_name: stackexchangeDB
-    image: neo4j:latest # Using 'latest' for the most recent Community Edition.
+    image: neo4j:5.26
+    pull_policy: missing
     ports:
-      - "7474:7474" # Neo4j Browser / HTTP API
-      - "7687:7687" # Bolt protocol for drivers
+      - "7474:7474"
+      - "7687:7687"
     volumes:
       - neo4j_stackexchange_data:/data
-      - neo4j_stackexchange_data:/logs
-    pull_policy: missing
+      - neo4j_stackexchange_logs:/logs
     environment:
-      # --- Neo4j Authentication (REQUIRED) ---
-      # It's recommended to use a .env file for sensitive info like passwords.
       - NEO4J_AUTH=${NEO4J_USERNAME}/${NEO4J_PASSWORD}
-
-      # --- Plugins Configuration ---
-      # 'apoc' is for APOC Core. For APOC Extended, you might use 'apoc-extended'
       - NEO4J_PLUGINS=["apoc", "graph-data-science"]
-
-      # --- Security Configuration for Procedures (CRITICAL for plugins to work) ---
-      # Allow all procedures from APOC and GDS.
-      # You can make this more granular if needed (e.g., apoc.coll.*, gds.alpha.*)
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
-      # Ensure procedures are explicitly allowed if you have a strict allowlist
       - NEO4J_dbms_security_procedures_allowlist=apoc.*,gds.*
-
-      # --- APOC specific configurations (Optional, but often useful) ---
-      # Enable APOC's file import/export features (for CSV, JSON etc.)
       - NEO4J_apoc_export_file_enabled=true
       - NEO4J_apoc_import_file_enabled=true
       - NEO4J_apoc_import_file_use__neo4j__config=true
-
-      # --- Memory Configuration (Recommended for GDS) ---
-      # Adjust these values based on your host's available RAM and graph size.
-      # GDS often requires more memory for graph projections.
-      # - NEO4J_server_memory_heap_initial__size=1G # Minimum initial heap size
-      # - NEO4J_server_memory_heap_max__size=4G # Maximum heap size
-      # - NEO4J_server_memory_pagecache_size=2G # For large graphs, dedicate memory to page cache
-
-      # --- Enable Java Vector API (SIMD) ---
-      - NEO4J_server_jvm_additional=--add-modules=jdk.incubator.vector
-
-      # --- disable telemetry
-      - NEO4J_dbms_usage_report.enabled=false
     restart: unless-stopped
     networks:
       - app-network
@@ -88,9 +62,9 @@ services:
       - "1001" # Your host's docker group GID
     container_name: fastapi-backend
     restart: unless-stopped
+    pull_policy: missing
     ports:
       - 8000:8000
-    pull_policy: missing
     environment:
       - NEO4J_URL=bolt://graphDB:7687
       - NEO4J_USERNAME=${NEO4J_USERNAME}
@@ -103,11 +77,6 @@ services:
       - ~/.cache/huggingface:/home/appuser/.cache/huggingface:rw
     networks:
       - app-network
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
-      interval: 10s
-      timeout: 5s
-      retries: 3
     logging:
       driver: "json-file"
       options:
@@ -125,7 +94,7 @@ services:
               capabilities: [ gpu, compute, utility ]
     depends_on:
       graphDB:
-        condition: service_started
+        condition: service_healthy
       ollama:
         condition: service_healthy
 
@@ -147,7 +116,7 @@ services:
       backend-server:
         condition: service_started
       ollama:
-        condition: service_started
+        condition: service_healthy
 
 networks:
   app-network:
@@ -155,4 +124,5 @@ networks:
 
 volumes:
   neo4j_stackexchange_data:
+  neo4j_stackexchange_logs:
   ollama_data:

@@ -14,9 +14,6 @@ env/
 venv/
 ENV/
 
-# --- Frontend (Excluding from backend build) ---
-frontend/
-
 # --- Archive / scratch directories ---
 archive/
 tmp/

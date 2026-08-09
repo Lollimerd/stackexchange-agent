@@ -624,25 +624,67 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
                         }\n\n"
 
                 # --- C. Token Streaming (LLM) ---
-                # Only stream tokens from the main answering LLM ("answer_llm").
-                # This explicitly filters out tokens from cypher generation, summarizer, or other helper LLM calls.
                 elif event_type == "on_chat_model_stream":
                     event_tags = event.get("tags", [])
                     if "answer_llm" not in event_tags:
-                        continue  # Drop — this token is not from the final answering model
+                        continue
 
                     chunk = event["data"].get("chunk")
                     if chunk:
-                        content = (
-                            chunk.content if hasattr(chunk, "content") else str(chunk)
-                        )
-                        # Extract reasoning content if available
-                        reasoning_chunk = (
-                            chunk.additional_kwargs.get("reasoning_content", "")
-                            if hasattr(chunk, "additional_kwargs")
-                            else ""
-                        )
+                        content = ""
+                        reasoning_chunk = ""
 
+                        # 1. Safely extract content and reasoning from chunk
+                        raw_content = getattr(chunk, "content", "")
+                        if isinstance(raw_content, str):
+                            content = raw_content
+                        elif isinstance(raw_content, list):
+                            for part in raw_content:
+                                if isinstance(part, str):
+                                    content += part
+                                elif isinstance(part, dict):
+                                    p_type = part.get("type", "")
+                                    if p_type == "text":
+                                        content += part.get("text", "")
+                                    elif p_type in ("reasoning", "thinking"):
+                                        reasoning_chunk += (
+                                            part.get("reasoning")
+                                            or part.get("thinking")
+                                            or part.get("text", "")
+                                        )
+                        else:
+                            content = str(raw_content) if raw_content else ""
+
+                        # Extract reasoning content if present in additional_kwargs
+                        if hasattr(chunk, "additional_kwargs") and isinstance(
+                            chunk.additional_kwargs, dict
+                        ):
+                            add_reasoning = (
+                                chunk.additional_kwargs.get("reasoning_content")
+                                or chunk.additional_kwargs.get("thinking")
+                                or ""
+                            )
+                            if add_reasoning:
+                                reasoning_chunk += add_reasoning
+
+                        # 2. Parse inline <think>...</think> tags if model streams them inside content
+                        if "<think>" in content:
+                            parts = content.split("<think>", 1)
+                            prefix = parts[0]
+                            rest = parts[1]
+                            content = prefix
+                            if "</think>" in rest:
+                                r_part, c_part = rest.split("</think>", 1)
+                                reasoning_chunk += r_part
+                                content += c_part
+                            else:
+                                reasoning_chunk += rest
+                        elif "</think>" in content:
+                            parts = content.split("</think>", 1)
+                            reasoning_chunk += parts[0]
+                            content = parts[1]
+
+                        # 3. SSE Event Emission & Buffer Accumulation
                         if content or reasoning_chunk:
                             event_data = {
                                 "type": "token",
@@ -651,21 +693,16 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
                             }
                             yield f"data: {json.dumps(event_data)}\n\n"
 
-                            # Accumulate content
-                            response_chunks.append(content)
-                            # Accumulate reasoning/thoughts if we want to save them
+                            if content:
+                                response_chunks.append(content)
                             if reasoning_chunk:
                                 response_thought_chunks.append(reasoning_chunk)
-
-                # --- D. Final Output ---
-                # 'on_chain_end' for the main executor might contain the final output,
-                # but valid streaming builds the answer token-by-token.
 
         except Exception as e:
             logger.error(f"Error in agent stream: {e}")
             yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
-        # 3. Save AI Response to DB
+        # 4. Save AI Response to DB
         try:
             full_response = "".join(response_chunks)
             full_thought = "".join(response_thought_chunks)

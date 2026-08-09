@@ -28,11 +28,11 @@ def answer_LLM():
         base_url=OLLAMA_BASE_URL,
         num_ctx=40968,
         num_predict=8192,  # max tokens in answer
-        temperature=0.7,  # more creative
-        repeat_penalty=1.5,  # higher, penalise repetitions
-        repeat_last_n=-1,  # look back within context to penalise penalty
-        top_p=0.5,  # more focused text
-        top_k=10,  # give less diverse answers
+        temperature=0.7,  # balanced creativity
+        repeat_penalty=1.1,  # standard mild penalty (1.5 caused severe gibberish)
+        repeat_last_n=64,  # look back 64 tokens (-1 penalized entire 40k context)
+        top_p=0.9,  # nucleus sampling
+        top_k=40,  # standard candidate pool
         reasoning=True,
         tags=["answer_llm"],
     )
