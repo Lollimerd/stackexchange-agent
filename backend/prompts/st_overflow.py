@@ -3,7 +3,7 @@ from langchain_core.prompts import (
     SystemMessagePromptTemplate,
     HumanMessagePromptTemplate,
     AIMessagePromptTemplate,
-    MessagesPlaceholder
+    MessagesPlaceholder,
 )
 
 # Define the System Message, which sets the AI's persona and instructions.
@@ -90,7 +90,9 @@ system_message_prompt = SystemMessagePromptTemplate.from_template(system_templat
 
 # Define a few-shot example to guide the model's conversational tone.
 human_example_prompt = HumanMessagePromptTemplate.from_template("hello there")
-ai_example_prompt = AIMessagePromptTemplate.from_template("Hello there! How can I help you today? 😊")
+ai_example_prompt = AIMessagePromptTemplate.from_template(
+    "Hello there! How can I help you today? 😊"
+)
 
 # Define the main Human Input Template, which combines the context and user question.
 human_input_template = """
@@ -119,11 +121,9 @@ human_message_prompt = HumanMessagePromptTemplate.from_template(human_input_temp
 analyst_prompt = ChatPromptTemplate.from_messages(
     [
         system_message_prompt,
-
         # field shots
         human_example_prompt,
         ai_example_prompt,
-
         # user input
         human_message_prompt,
     ]
