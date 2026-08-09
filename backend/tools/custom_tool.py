@@ -120,7 +120,7 @@ RETURN
   } AS metadata,
   score
 ORDER BY score DESC
-LIMIT 10
+LIMIT 50
 """
 
 # Create vector stores with error handling
@@ -142,7 +142,7 @@ except Exception as e:
 try:
     compressor = CrossEncoderReranker(
         model=RERANKER_MODEL,
-        top_n=5  # This will return the top n most relevant documents.
+        top_n=10  # This will return the top n most relevant documents.
     )
 except Exception as e:
     logger.error(f"Error creating compressor: {e}")
@@ -165,13 +165,13 @@ def retrieve_context(question: str) -> List[Document]:
     try:
         # Define the common search arguments once
         common_search_kwargs = {
-            'k': 10,
+            'k': 20,
             'params': {
                 'embedding': EMBEDDINGS.embed_query(question),
                 'keyword_query': escape_lucene_chars(question)
             },
             'fetch_k': 100,
-            'score_threshold': 0.85,
+            'score_threshold': 0.95,
             'lambda_mult': 0.5,
         }
 
@@ -190,7 +190,6 @@ def retrieve_context(question: str) -> List[Document]:
         # init ensemble retriever
         ensemble_retriever = EnsembleRetriever(
             retrievers=retrievers,
-            # weights=[0.25, 0.25, 0.25, 0.25]  # Adjust weights based on importance
         )
 
         logger.info("Retrieving and reranking dynamic context")

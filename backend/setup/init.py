@@ -2,8 +2,7 @@
 
 import os, json, time
 from dotenv import load_dotenv
-from langchain_ollama import OllamaEmbeddings
-from langchain_ollama import ChatOllama
+from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_neo4j import Neo4jGraph, Neo4jVector
 from typing_extensions import List, TypedDict
 from typing import Dict, Optional
@@ -22,18 +21,19 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 
 # qwen3:8b works for now with limited context of 40k, qwen3:30b works with 256k max
 ANSWER_LLM = ChatOllama(
-    model="qwen3:0.6b", # Ensure your model produces <think> tags
+    model="qwen3:0.6b", # Ensure your model produces <tool_call> tags
     base_url=OLLAMA_BASE_URL, 
-    num_ctx=40960, # 40k
+    num_ctx=40968, # 40k context
     num_predict=-2, # fill context
     tfs_z=2.0, # reduce impact of less probable tokens from output
     repeat_penalty=1.5, # higher, penalise repetitions
     repeat_last_n=-1, # look back within context to penalise penalty
-    top_p=0.95, # more diverse text
-    top_k=100, # give more diverse answers
+    top_p=0.5, # more diverse text
+    top_k=10, # give more diverse answers
     mirostat=2.0, # enable mirostat 2.0 sampling for controlling perplexity
-    mirostat_tau=8.0, # output diversity
+    mirostat_tau=3.0, # output diversity
     mirostat_eta=0.2, # learning rate, responsiveness
+    temperature=0.1, # lower temperature for more focused answers
     reasoning=True,
 ) 
 
