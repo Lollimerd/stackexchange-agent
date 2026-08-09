@@ -507,13 +507,11 @@ else:
                             st.error(f"Unexpected error: {str(e)[:200]}")
 
     # --- Auto-Scroll to Bottom ---
-    components.html(
+    st.iframe(
         """
         <script>
             var scrollingElement = (document.scrollingElement || document.body);
             scrollingElement.scrollTop = scrollingElement.scrollHeight;
         </script>
-        """,
-        height=0,
-        width=0,
+        """
     )

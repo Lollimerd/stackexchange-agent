@@ -333,7 +333,7 @@ def render_page():
 
                 # Generate and display the graph
                 html_content = create_pyvis_graph(graph_data, height="650px")
-                components.html(html_content, height=700, scrolling=True)
+                st.iframe(html_content, height=700)
             else:
                 st.warning(
                     "No graph data found. Try importing some data first using the Loader page."
