@@ -33,6 +33,9 @@ WORKDIR /app
 ARG UID=10001
 RUN useradd --create-home --shell /bin/bash --uid "${UID}" appuser
 
+# Install curl for healthcheck
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 # Create cache directories for HuggingFace and models, ensure appuser owns them so it can write models/logs
 RUN mkdir -p /home/appuser/.cache/huggingface /app/backend \
     && chown -R appuser:appuser /home/appuser /app
