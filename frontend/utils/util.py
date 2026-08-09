@@ -17,9 +17,9 @@ logger = logging.getLogger(__name__)
 # --- API Configuration ---
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8001")
 
-CHATS_URL = f"{BACKEND_URL}/api/v1/user"  # /{user_id}/chats
-CHAT_HISTORY_URL = f"{BACKEND_URL}/api/v1/chat"
-USERS_URL = f"{BACKEND_URL}/api/v1/users"
+CHATS_URL = f"{BACKEND_URL}/user"
+CHAT_HISTORY_URL = f"{BACKEND_URL}/chat"
+USERS_URL = f"{BACKEND_URL}/users"
 AGENT_URL = f"{BACKEND_URL}/agent/ask"
 
 
@@ -61,7 +61,7 @@ def delete_chat_api(session_id):
 def delete_user_api(user_id):
     """Delete a user and all their data."""
     try:
-        requests.delete(f"{BACKEND_URL}/api/v1/user/{user_id}", timeout=5)
+        requests.delete(f"{BACKEND_URL}/user/{user_id}/", timeout=5)
         logger.info(f"User {user_id} deleted")
     except requests.exceptions.RequestException as e:
         logger.error(f"Error deleting user {user_id}: {e}")
@@ -72,7 +72,7 @@ def delete_import_log_api(import_id):
     """Delete an import log."""
     try:
         response = requests.delete(
-            f"{BACKEND_URL}/api/v1/ingest/record/{import_id}", timeout=5
+            f"{BACKEND_URL}/ingest/record/{import_id}", timeout=5
         )
         response.raise_for_status()
         logger.info(f"Import log {import_id} deleted")
@@ -87,7 +87,7 @@ def update_import_log_api(import_id, data):
     """Update an import log."""
     try:
         response = requests.put(
-            f"{BACKEND_URL}/api/v1/ingest/record/{import_id}", json=data, timeout=5
+            f"{BACKEND_URL}/ingest/record/{import_id}", json=data, timeout=5
         )
         response.raise_for_status()
         logger.info(f"Import log {import_id} updated")
@@ -256,7 +256,7 @@ def render_message_with_mermaid(content, key_suffix=""):
 
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8001")
-CONFIG_URL = f"{BACKEND_URL}/api/v1/config"  # New API endpoint
+CONFIG_URL = f"{BACKEND_URL}/config"  # New API endpoint
 
 
 # --- 🆕 Function to fetch and display container name ---
@@ -289,7 +289,7 @@ def get_system_config():
 def get_database_summary():
     """Get summary statistics from the database via API."""
     try:
-        response = requests.get(f"{BACKEND_URL}/api/v1/stats/summary")
+        response = requests.get(f"{BACKEND_URL}/stats/summary")
         if response.status_code == 200:
             return response.json()
     except Exception as e:
@@ -309,7 +309,7 @@ def get_import_history(limit: int = 20):
     """Get recent import history from API."""
     try:
         response = requests.get(
-            f"{BACKEND_URL}/api/v1/stats/history", params={"limit": limit}
+            f"{BACKEND_URL}/stats/history", params={"limit": limit}
         )
         if response.status_code == 200:
             return response.json()
@@ -321,7 +321,7 @@ def get_import_history(limit: int = 20):
 def get_entity_counts():
     """Get counts for all entity types from API."""
     try:
-        response = requests.get(f"{BACKEND_URL}/api/v1/stats/entity_counts")
+        response = requests.get(f"{BACKEND_URL}/stats/entity_counts")
         if response.status_code == 200:
             return response.json()
     except Exception as e:
@@ -333,7 +333,7 @@ def search_nodes(search_term: str, limit: int = 10):
     """Search for nodes by title, name, or display_name via API."""
     try:
         response = requests.get(
-            f"{BACKEND_URL}/api/v1/graph/search",
+            f"{BACKEND_URL}/graph/search",
             params={"term": search_term, "limit": limit},
         )
         if response.status_code == 200:
@@ -357,7 +357,7 @@ def get_graph_sample(
             "limit": limit,
             "focus_node_id": focus_node_id,
         }
-        response = requests.post(f"{BACKEND_URL}/api/v1/graph/sample", json=payload)
+        response = requests.post(f"{BACKEND_URL}/graph/sample", json=payload)
         if response.status_code == 200:
             return response.json()
     except Exception as e:

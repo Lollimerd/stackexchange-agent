@@ -108,7 +108,7 @@ def insert_so_data(data: dict) -> None:
     """Insert StackOverflow data into Neo4j via Backend API."""
     try:
         response = requests.post(
-            f"{BACKEND_URL}/api/v1/ingest", json={"data": data["items"]}
+            f"{BACKEND_URL}/ingest", json={"data": data["items"]}
         )
         response.raise_for_status()
         res_json = response.json()
@@ -206,7 +206,7 @@ def render_page():
                     "total_pages": num_pages,
                 }
                 rec_resp = requests.post(
-                    f"{BACKEND_URL}/api/v1/ingest/record", json=payload
+                    f"{BACKEND_URL}/ingest/record", json=payload
                 )
                 rec_resp.raise_for_status()
 
