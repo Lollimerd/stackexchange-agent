@@ -49,19 +49,14 @@ ai_example_prompt = AIMessagePromptTemplate.from_template("Hello there! How can 
 
 # Define the main Human Input Template, which combines the context and user question.
 human_input_template = """
-<|im_start|>context
+### CONTEXT:
 {context}
-<|im_end|>
 
-<|im_start|>chat_history
+### CONVERSATION HISTORY:
 {chat_history_formatted}
-<|im_end|>
 
-<|im_start|>user
+### QUESTION:
 {question}
-<|im_end|>
-
-<|im_start|>assistant
 """
 human_message_prompt = HumanMessagePromptTemplate.from_template(human_input_template)
 
