@@ -11,7 +11,7 @@ langchain-neo4j
 langchain-ollama
 
 # Database & Graph
-neo4j>=5.17.0
+neo4j
 
 # AI/ML & Embeddings
 sentence-transformers

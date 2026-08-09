@@ -15,7 +15,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import uvicorn
+
 from setup.init import (
     ANSWER_LLM,
     EMBEDDINGS,
@@ -258,7 +258,7 @@ async def ingest_stackoverflow_data(request: IngestRequest):
                 question_text = q.get("title", "") + "\n" + q.get("body_markdown", "")
                 q["embedding"] = EMBEDDINGS.embed_query(question_text)
                 # Sleep a tiny bit to be nice to Ollama if needed, though requests are sequential here
-                # time.sleep(0.1)
+                time.sleep(0.1)
 
                 for a in q.get("answers", []):
                     answer_text = question_text + "\n" + a.get("body_markdown", "")
