@@ -4,7 +4,8 @@ import streamlit as st
 from streamlit.logger import get_logger
 from utils.util import create_constraints, create_vector_index, import_query, record_import_session
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from backend.setup.init import EMBEDDINGS, graph
+from langchain_ollama import OllamaEmbeddings
+from langchain_neo4j import Neo4jGraph
 # from PIL import Image
 
 # load credential details
@@ -13,6 +14,22 @@ url = os.getenv("NEO4J_URL")
 username = os.getenv("NEO4J_USER")
 password = os.getenv("NEO4J_PASS")
 ollama_base_url = os.getenv("OLLAMA_BASE_URL")
+
+# embedding model
+EMBEDDINGS = OllamaEmbeddings(
+    model="jina/jina-embeddings-v2-base-en:latest", 
+    base_url=ollama_base_url,
+    num_ctx=8192, # 8k context
+)
+
+# neo4j connection
+graph = Neo4jGraph(
+    url=url,
+    username=username,
+    password=password,
+    enhanced_schema=True,
+    refresh_schema=True
+)
 
 logger = get_logger(__name__)
 
