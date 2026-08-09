@@ -1,5 +1,5 @@
 version: '3.11-bookworm'
-name: graphrag-chatbot
+name: stackoverflow-chatbot
 
 services:
   ollama:
@@ -8,6 +8,8 @@ services:
     ports:
       - "11434:11434"
     gpus: all
+    volumes:
+      - ollama_data:/root/.ollama
     restart: unless-stopped
     networks:
       - app-network
@@ -145,6 +147,5 @@ networks:
     driver: bridge
 
 volumes:
-  neo4j_movie_data:
   neo4j_stackoverflow_data:
-  database_data:
+  ollama_data:
