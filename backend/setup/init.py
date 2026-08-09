@@ -37,16 +37,19 @@ ANSWER_LLM = ChatOllama(
     reasoning=True,
 ) 
 
+# embedding model
 EMBEDDINGS = OllamaEmbeddings(
     model="jina/jina-embeddings-v2-base-en:latest", 
     base_url=OLLAMA_BASE_URL, 
     num_ctx=8192, # 8k context
 )
 
+# reranker model
 RERANKER_MODEL = HuggingFaceCrossEncoder(
     model_name='BAAI/bge-reranker-base',
     )  # Use 'cuda' if you have a GPU available.
 
+# neo4j connection
 graph = Neo4jGraph(
     url=NEO4J_URL,
     username=NEO4J_USERNAME,
