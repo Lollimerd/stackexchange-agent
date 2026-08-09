@@ -63,7 +63,7 @@ def retrieve_raw_docs(question: str) -> List[Document]:
         common_search_kwargs = {
             "k": 100,  # Increased initial pool: wider net across all entity types
             "score_threshold": 0.9,  # Slightly lowered to ensure we catch cross-domain links
-            "fetch_k": 10000,  # Number of candidates for the initial vector search
+            "fetch_k": 1000,  # Number of candidates for the initial vector search
             "lambda_mult": 0.5,  # Balanced weight between Vector and Full-text
             "params": {
                 "embedding": embedding_model().embed_query(question),
@@ -119,8 +119,12 @@ def rerank_docs(inputs: Dict) -> List[Document]:
         if not docs:
             return []
 
-        logger.info(f"Reranking {len(docs)} documents...")
-        reranked_docs = compressor.compress_documents(documents=docs, query=question)
+        # Sanitize document sizes before sending them to the reranker and main LLM context!
+        from utils.util import sanitize_doc_size
+        sanitized_docs = [sanitize_doc_size(doc) for doc in docs]
+
+        logger.info(f"Reranking {len(sanitized_docs)} documents...")
+        reranked_docs = compressor.compress_documents(documents=sanitized_docs, query=question)
 
         # ⚠️ BAAI/bge-reranker outputs logits (often negative or < 0.95). 
         # A strict 0.95 probability threshold will drop almost all valid context!
@@ -188,7 +192,12 @@ class CustomRAGTool(BaseTool):
     """Tool that queries the GraphRAG knowledge base."""
 
     name: str = "custom_rag_tool"
-    description: str = "Search the knowledge base for technical context. Call this tool ONCE to retrieve data, then immediately use that data to answer the user's question. DO NOT call this tool repeatedly for the same question."
+    description: str = (
+        "Retrieve relevant information from the StackOverflow knowledge graph. "
+        "Use this tool whenever the user asks a technical question about software, "
+        "code, errors, or any topic that may be answered from the knowledge base. "
+        "Call it at most once per user message (or twice if the initial search did not provide good results)."
+    )
     args_schema: Type[BaseModel] = GraphRAGInput
 
     # synchronous execution
@@ -201,6 +210,13 @@ class CustomRAGTool(BaseTool):
         run_manager: Optional[CallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool synchronously."""
+        from utils.util import tool_call_count
+        current_count = tool_call_count.get()
+        if current_count >= 2:
+            logger.warning("custom_rag_tool invocation blocked: limit of 2 reached.")
+            return "Tool usage limit of 2 reached. Do not call this tool again for this query."
+        tool_call_count.set(current_count + 1)
+
         result = graph_rag_chain.invoke(
             {
                 "question": question,
@@ -208,7 +224,11 @@ class CustomRAGTool(BaseTool):
             config={"callbacks": run_manager.get_child() if run_manager else None},
         )
         context = result.get("context", "")
-        return context if context.strip() else "No relevant context found in the knowledge graph. Do not try again."
+        return (
+            context
+            if context.strip()
+            else "No relevant data found in the knowledge graph for this question. Answer using your general knowledge."
+        )
 
     # asynchronous execution
     async def _arun(
@@ -220,6 +240,13 @@ class CustomRAGTool(BaseTool):
         run_manager: Optional[AsyncCallbackManagerForToolRun] = None,
     ) -> str:
         """Execute the tool asynchronously."""
+        from utils.util import tool_call_count
+        current_count = tool_call_count.get()
+        if current_count >= 2:
+            logger.warning("custom_rag_tool invocation blocked: limit of 2 reached.")
+            return "Tool usage limit of 2 reached. Do not call this tool again for this query."
+        tool_call_count.set(current_count + 1)
+
         result = await graph_rag_chain.ainvoke(
             {
                 "question": question,
@@ -227,7 +254,11 @@ class CustomRAGTool(BaseTool):
             config={"callbacks": run_manager.get_child() if run_manager else None},
         )
         context = result.get("context", "")
-        return context if context.strip() else "No relevant context found in the knowledge graph. Do not try again."
+        return (
+            context
+            if context.strip()
+            else "No relevant data found in the knowledge graph for this question. Answer using your general knowledge."
+        )
 
 
 # Initialize the tool

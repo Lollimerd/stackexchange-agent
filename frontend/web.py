@@ -412,7 +412,7 @@ else:
 
                                                     # Update the container label to show current activity
                                                     status_box.update(
-                                                        label=message, state="running"
+                                                        label=message, state="running", expanded=True
                                                     )
 
                                                     if status_state == "running":

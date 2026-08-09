@@ -13,9 +13,9 @@ services:
       - OLLAMA_FLASH_ATTENTION=1 # enable to optimize inference
       - OLLAMA_KV_CACHE_TYPE=q4_0 # lowest vram usage
       - OLLAMA_NUM_CTX=32768 # default context window
-      - OLLAMA_MAX_LOADED_MODELS=3
-      - OLLAMA_KEEP_ALIVE=60s # models will not be unloaded from gpu
-      - OLLAMA_NUM_PARALLEL=2 # no of concurrent request
+      - OLLAMA_MAX_LOADED_MODELS=2 # Cypher LLM + Answer LLM fit well in 12GB VRAM
+      - OLLAMA_KEEP_ALIVE=-1 # NEVER unload models from GPU; eliminates 3-5s load time per request
+      - OLLAMA_NUM_PARALLEL=2 # no of concurrent requests
     volumes:
       - ollama_data:/root/.ollama
     restart: unless-stopped
@@ -87,6 +87,7 @@ services:
     group_add:
       - "1001" # Your host's docker group GID
     container_name: fastapi-backend
+    restart: unless-stopped
     ports:
       - 8000:8000
     pull_policy: missing
@@ -98,26 +99,30 @@ services:
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
       - HF_HUB_OFFLINE=1
       - HF_HOME=/home/appuser/.cache/huggingface
-    restart: unless-stopped
     volumes:
       - ~/.cache/huggingface:/home/appuser/.cache/huggingface:rw
-    deploy:
-      resources:
-        limits:
-          memory: 4G # cap container RAM
-          cpus: '6' # cap CPU cores
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [ gpu, compute, utility ]
     networks:
       - app-network
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 3
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    deploy:
+      resources:
+        # limits:
+        #   # memory: 8G # cap container RAM
+        #   cpus: '6' # cap CPU cores
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu, compute, utility ]
     depends_on:
       graphDB:
         condition: service_started

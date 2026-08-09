@@ -471,6 +471,8 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
         )
 
         # Initialize accumulators
+        from utils.util import tool_call_count
+        tool_call_count.set(0)
         response_chunks = []
         response_thought_chunks = []
 
@@ -623,14 +625,12 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
                         }\n\n"
 
                 # --- C. Token Streaming (LLM) ---
-                # Suppress tokens that originate from inside graph_rag_tool
-                # (Cypher generation or internal QA step). Only stream the
-                # final agent response.
+                # Only stream tokens from the main answering LLM ("answer_llm").
+                # This explicitly filters out tokens from cypher generation, summarizer, or other helper LLM calls.
                 elif event_type == "on_chat_model_stream":
-                    # Check if this event is a child of the active tool invocation
-                    parent_ids = event.get("parent_ids", [])
-                    if tool_run_id and tool_run_id in parent_ids:
-                        continue  # Drop — this token is from inside the tool
+                    event_tags = event.get("tags", [])
+                    if "answer_llm" not in event_tags:
+                        continue  # Drop — this token is not from the final answering model
 
                     chunk = event["data"].get("chunk")
                     if chunk:

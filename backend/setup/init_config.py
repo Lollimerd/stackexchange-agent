@@ -26,14 +26,15 @@ def answer_LLM():
     return ChatOllama(
         model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=262144,
-        num_predict=4096,  # max tokens in answer
+        num_ctx=40968,
+        num_predict=8192,  # max tokens in answer
         temperature=0.7,  # more creative
         repeat_penalty=1.5,  # higher, penalise repetitions
         repeat_last_n=-1,  # look back within context to penalise penalty
         top_p=0.5,  # more focused text
         top_k=10,  # give less diverse answers
         reasoning=True,
+        tags=["answer_llm"],
     )
 
 
@@ -48,12 +49,13 @@ def cypher_LLM():
     return ChatOllama(
         model="qwen3.5:4b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=262144,
+        num_ctx=40968, # system prompt + user query + schema + retrieved docs
         num_predict=1024,  # Cypher queries are concise
         temperature=0.0,  # fully deterministic — critical for valid Cypher
         top_p=1.0,
         top_k=1,
         reasoning=False,  # MUST be False — no <think> tokens in tool steps
+        tags=["cypher_llm"],
     )
 
 
@@ -73,8 +75,9 @@ def embedding_model():
 @lru_cache(maxsize=1)
 def reranker_model():
     """reranker model"""
+    import torch
     return HuggingFaceCrossEncoder(
-        model_name="BAAI/bge-reranker-base",
+        model_name="cross-encoder/ms-marco-MiniLM-L-6-v2",
         model_kwargs={
             "device": "cuda",  # Use 'cuda' for GPU acceleration
         },
@@ -88,6 +91,7 @@ def summarizer():
         model="qwen3.5:0.8b",
         base_url=OLLAMA_BASE_URL,
         num_ctx=4096,  # 40k context
+        tags=["summarizer_llm"],
     )
 
 

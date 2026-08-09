@@ -32,7 +32,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnableLambda
 from langchain_neo4j import GraphCypherQAChain
 
-from setup.init_config import cypher_LLM, get_graph_instance, reranker_model
+from setup.init_config import cypher_LLM, embedding_model, get_graph_instance, reranker_model
 from utils.util import format_docs_with_metadata
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ def _get_compressor() -> CrossEncoderReranker:
     if _compressor is None:
         _compressor = CrossEncoderReranker(
             model=reranker_model(),
-            top_n=20,
+            top_n=10,
         )
         logger.info("CrossEncoderReranker initialised (top_n=20).")
     return _compressor
@@ -60,8 +60,10 @@ CYPHER_GENERATION_TEMPLATE = """Task: Generate a Cypher statement to query a Sta
 Instructions:
 - Use ONLY the relationship types and node properties defined in the schema below.
 - Output ONLY the raw Cypher statement — no explanation, no markdown, no apologies.
-- ALWAYS anchor the query on Question-Answer pairs using the pattern:
-    (a:Answer)-[:ANSWERS]->(q:Question)
+- ALWAYS start with a vector index search using `$question_embedding`. E.g.:
+    CALL db.index.vector.queryNodes('Question_index', 50, $question_embedding) YIELD node AS q, score
+- Follow the vector search with graph traversal anchored on Question-Answer pairs:
+    MATCH (a:Answer)-[:ANSWERS]->(q:Question)
 - Use OPTIONAL MATCH for supplementary context (tags, users) so that missing
   branches never eliminate otherwise valid results.
 - When the question concerns a specific topic or technology, filter by shared
@@ -69,9 +71,10 @@ Instructions:
     ANY(cid IN q.CommunityId WHERE cid IN a.CommunityId)
   This ensures answers and questions belong to the same community cluster.
 - Prefer accepted or high-scoring answers (a.is_accepted = true OR a.score > 0).
-- Limit results to a reasonable number (LIMIT 100 unless the question asks for more).
+- Limit results (LIMIT 50 is a good default).
 - Return enough fields for a rich answer: question title, question body, answer body,
-  answer score, whether the answer is accepted, and relevant tag names.
+  answer score, whether the answer is accepted, relevant tag names, and vector search similarity score (`score`).
+- CRITICAL: In Cypher, if a query uses aggregation (such as `collect(DISTINCT...)`) in the `RETURN` clause, any variable used in the `ORDER BY` clause (like `score`) MUST be explicitly included in the `RETURN` clause. Make sure to project `score` in your `RETURN` statement if you order by it!
 
 Schema:
 {schema}
@@ -79,9 +82,9 @@ Schema:
 Examples:
 
 # Find accepted answers for questions about Python async
+CALL db.index.vector.queryNodes('Question_index', 50, $question_embedding) YIELD node AS q, score
 MATCH (a:Answer)-[:ANSWERS]->(q:Question)
-WHERE (toLower(q.title) CONTAINS 'async' OR toLower(q.body) CONTAINS 'async')
-  AND ANY(cid IN q.CommunityId WHERE cid IN a.CommunityId)
+WHERE ANY(cid IN q.CommunityId WHERE cid IN a.CommunityId)
   AND (a.is_accepted = true OR a.score > 0)
 OPTIONAL MATCH (q)-[:TAGGED]->(t:Tag)
 OPTIONAL MATCH (u:User)-[:PROVIDED]->(a)
@@ -90,21 +93,24 @@ RETURN q.title        AS question_title,
        a.body         AS answer_body,
        a.score        AS answer_score,
        collect(DISTINCT t.name) AS tags,
-       u.display_name AS answered_by
-ORDER BY a.score DESC
-LIMIT 100
+       u.display_name AS answered_by,
+       score
+ORDER BY score DESC, a.score DESC
+LIMIT 25
 
-# Top 5 highest-scored questions with their best answer
-MATCH (a:Answer)-[:ANSWERS]->(q:Question)
-  AND ANY(cid IN q.CommunityId WHERE cid IN a.CommunityId)
+# Top highest-scored questions with their best answer
+CALL db.index.vector.queryNodes('Question_index', 50, $question_embedding) YIELD node AS q, score
+MATCH (a:Answer)-[:ANSWERS]->(q)
+WHERE ANY(cid IN q.CommunityId WHERE cid IN a.CommunityId)
 OPTIONAL MATCH (q)-[:TAGGED]->(t:Tag)
 RETURN q.title        AS question_title,
        q.score        AS question_score,
        a.body         AS best_answer_body,
        a.score        AS answer_score,
-       collect(DISTINCT t.name) AS tags
-ORDER BY q.score DESC
-LIMIT 100
+       collect(DISTINCT t.name) AS tags,
+       score
+ORDER BY score DESC, q.score DESC
+LIMIT 25
 
 The question is:
 {question}"""
@@ -126,8 +132,8 @@ def _get_chain() -> GraphCypherQAChain:
             validate_cypher=True,                # reject syntactically invalid queries
             return_intermediate_steps=True,      # exposes generated_cypher + context
             allow_dangerous_requests=True,       # required by langchain-neo4j ≥ 0.3
-            verbose=False,
-            top_k=100,                           # allow more docs to reach reranker
+            verbose=False,                       # enable when debugging
+            top_k=25,
         )
         logger.info("GraphCypherQAChain initialised (retrieval-only mode).")
     return _chain
@@ -139,35 +145,46 @@ def _get_chain() -> GraphCypherQAChain:
 
 def _run_graph_traversal(question: str) -> list[dict[str, Any]]:
     """
-    Generate a Cypher query from *question* and execute it.
+    Generate a Cypher query from *question* and execute it against Neo4j.
+    Uses vector index search via $question_embedding for fast, indexed lookups.
     Returns the raw list of records returned by Neo4j.
     """
     chain = _get_chain()
 
-    # invoke() always calls the QA step internally, but we only care about
-    # intermediate_steps which contains the raw context.
-    result = chain.invoke({"query": question})
+    # Step 1: Embed the question — needed by the vector index in generated Cypher.
+    question_embedding = embedding_model().embed_query(question)
 
-    intermediate = result.get("intermediate_steps", [])
-    raw_context: list[dict[str, Any]] = []
+    # Step 2: Generate Cypher using the cypher generation sub-chain only.
+    # Passing question_embedding in the args allows the prompt template to
+    # reference it; more importantly we pass it as a Bolt param in step 3.
+    args = {
+        "question": question,
+        "schema": chain.graph_schema,
+        "query": question,
+    }
+    from langchain_neo4j.chains.graph_qa.cypher import extract_cypher
+    raw_cypher = chain.cypher_generation_chain.invoke(args)
+    generated_cypher = extract_cypher(raw_cypher)
 
-    for step in intermediate:
-        # Each intermediate step is a dict that may contain:
-        #   {"query": <cypher string>}   — the generated Cypher
-        #   {"context": [<records>]}     — rows returned by Neo4j
-        if "context" in step:
-            raw_context = step["context"]
-            break
-
-    generated_cypher = ""
-    for step in intermediate:
-        if "query" in step:
-            generated_cypher = step["query"]
-            break
+    if chain.cypher_query_corrector:
+        generated_cypher = chain.cypher_query_corrector(generated_cypher)
 
     logger.info("Generated Cypher: %s", generated_cypher)
-    logger.info("Raw context records: %d rows", len(raw_context))
 
+    # Step 3: Execute Cypher against Neo4j with $question_embedding as a
+    # Bolt parameter so CALL db.index.vector.queryNodes(...) can resolve it.
+    raw_context: list[dict[str, Any]] = []
+    if generated_cypher:
+        try:
+            raw_context = chain.graph.query(
+                generated_cypher,
+                params={"question_embedding": question_embedding},
+            )
+        except Exception as exc:
+            logger.error("Failed to execute generated Cypher: %s", exc)
+            raise exc
+
+    logger.info("Raw context records: %d rows", len(raw_context))
     return raw_context
 
 
@@ -198,13 +215,23 @@ def _rerank_docs(inputs: Dict[str, Any]) -> List[Document]:
         return []
 
     # --- Convert raw dicts → Documents ---
+    # Truncate heavy fields *before* string concatenation to avoid
+    # allocating multi-MB page_content strings for documents the reranker will never fully read (cross-encoder max is ~512 tokens ≈ 2 000 chars)
+    _MAX_BODY = 1500   # chars per field fed to the cross-encoder
+    _MAX_META = 3500   # chars for metadata strings passed to the answer LLM
     docs: List[Document] = []
     for record in raw_records:
-        title = record.get("question_title", "")
-        q_body = record.get("question_body", "")
-        a_body = record.get("answer_body", record.get("best_answer_body", ""))
+        title   = (record.get("question_title") or "")[:200]
+        q_body  = (record.get("question_body") or "")[:_MAX_BODY]
+        a_body  = (record.get("answer_body") or record.get("best_answer_body") or "")[:_MAX_BODY]
         page_content = f"Title: {title}\nQuestion: {q_body}\nAnswer: {a_body}"
-        docs.append(Document(page_content=page_content, metadata=record))
+
+        # Truncate remaining metadata string fields for the answer LLM context
+        meta: Dict[str, Any] = {
+            k: (v[:_MAX_META] if isinstance(v, str) and len(v) > _MAX_META else v)
+            for k, v in record.items()
+        }
+        docs.append(Document(page_content=page_content, metadata=meta))
 
     logger.info("Reranking %d documents...", len(docs))
     compressor = _get_compressor()
@@ -235,7 +262,7 @@ def graph_rag_tool(question: str) -> str:
 
     Use this tool whenever the user asks a technical question about software,
     code, errors, or any topic that may be answered from the knowledge base.
-    Call it **at most once** per user message.
+    Call it **at most once** per user message (or **twice** if the initial search did not provide good results).
 
     Args:
         question: The user's question or topic to look up in the graph.
