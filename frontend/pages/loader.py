@@ -7,6 +7,18 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 logger = get_logger(__name__)
 
+st.set_page_config(
+    page_title="StackExchange Import",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded",
+    menu_items={
+        "Get Help": "https://www.extremelycoolapp.com/help",
+        "Report a bug": "https://www.extremelycoolapp.com/bug",
+        "About": "# This is a header. This is an *extremely* cool app!",
+    },
+)
+
 so_api_base_url = "https://api.stackexchange.com/2.3/search/advanced"
 
 
@@ -20,12 +32,38 @@ def load_so_data(tag: str, page: int, site: str) -> dict:
         api_key = os.getenv("STACKEXCHANGE_API_KEY")
         key_param = f"&key={api_key}" if api_key else ""
         site = "stackoverflow"
-        parameters = f"""?pagesize=100&page={page}&order=desc&sort=creation&answers=1&tagged={tag}&site={site}&filter=!*236eb_eL9rai)MOSNZ-6D3Q6ZKb0buI*IVotWaTb{key_param}"""
+        parameters = f"""?pagesize=100&
+        page={page}&
+        order=desc&
+        sort=creation&
+        answers=1&
+        tagged={tag}&
+        site={site}&
+        filter=!*236eb_eL9rai)MOSNZ-6D3Q6ZKb0buI*IVotWaTb{key_param}"""
 
-        # Wrap the network request in its own try-except block
-        response = requests.get(so_api_base_url + parameters)
-        response.raise_for_status()  # This will raise an exception for HTTP errors (4xx or 5xx)
-        data = response.json()
+        # Retry logic for network flakiness
+        max_retries = 3
+        data = None
+        last_exception = None
+
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(so_api_base_url + parameters, stream=False)
+                response.raise_for_status()
+                data = response.json()
+                break  # Success
+            except requests.exceptions.RequestException as e:
+                last_exception = e
+                if attempt < max_retries - 1:
+                    sleep_time = 2**attempt  # 1s, 2s, 4s...
+                    time.sleep(sleep_time)
+                    continue
+                else:
+                    # After all retries, raise the last exception to be handled by the outer block
+                    raise last_exception or e
+
+        if not data:
+            raise last_exception or Exception("Failed to retrieve data after retries")
 
         if "items" in data and data["items"]:
             # Handle API backoff requests
