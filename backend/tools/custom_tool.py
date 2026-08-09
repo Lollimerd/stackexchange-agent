@@ -117,7 +117,7 @@ RETURN
   } AS metadata,
   score
 ORDER BY score DESC
-LIMIT 100
+LIMIT 10
 """
 
 # Create vector stores
