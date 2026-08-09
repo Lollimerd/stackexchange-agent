@@ -2,21 +2,33 @@
 import json, requests, datetime, uuid, httpx, os, logging
 from httpx_sse import connect_sse
 import streamlit as st
+
 # from st_pages import add_page_title, get_nav_from_toml
 import streamlit.components.v1 as components
+
 # from streamlit_timeline import timeline
-from utils.util import render_message_with_mermaid, display_container_name, get_system_config
+from utils.util import (
+    render_message_with_mermaid,
+    display_container_name,
+    get_system_config,
+)
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- Page Configuration ---
-st.set_page_config(page_title="Custom GPT", page_icon="🧠", layout="wide", initial_sidebar_state="expanded",
+st.set_page_config(
+    page_title="Custom GPT",
+    page_icon="🧠",
+    layout="wide",
+    initial_sidebar_state="expanded",
     menu_items={
-    'Get Help': 'https://www.extremelycoolapp.com/help',
-    'Report a bug': "https://www.extremelycoolapp.com/bug",
-    'About': "# This is a header. This is an *extremely* cool app!"})
+        "Get Help": "https://www.extremelycoolapp.com/help",
+        "Report a bug": "https://www.extremelycoolapp.com/bug",
+        "About": "# This is a header. This is an *extremely* cool app!",
+    },
+)
 
 # --- API Configuration ---
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
@@ -24,6 +36,7 @@ FASTAPI_URL = f"{BACKEND_URL}/stream-ask"
 CHATS_URL = f"{BACKEND_URL}/api/v1/user"  # /{user_id}/chats
 CHAT_HISTORY_URL = f"{BACKEND_URL}/api/v1/chat"
 USERS_URL = f"{BACKEND_URL}/api/v1/users"
+
 
 # --- API Helper Functions with Error Handling ---
 def fetch_all_users(retry_count=2):
@@ -49,6 +62,7 @@ def fetch_all_users(retry_count=2):
             return []
     return []
 
+
 def delete_chat_api(session_id):
     """Delete a chat session."""
     try:
@@ -58,6 +72,7 @@ def delete_chat_api(session_id):
         logger.error(f"Error deleting chat {session_id}: {e}")
         st.warning(f"Could not delete chat: {str(e)[:50]}")
 
+
 def delete_user_api(user_id):
     """Delete a user and all their data."""
     try:
@@ -66,6 +81,7 @@ def delete_user_api(user_id):
     except requests.exceptions.RequestException as e:
         logger.error(f"Error deleting user {user_id}: {e}")
         st.warning(f"Could not delete user: {str(e)[:50]}")
+
 
 def fetch_user_chats(user_id, retry_count=2):
     """Fetch user's chat sessions with retry logic."""
@@ -88,6 +104,7 @@ def fetch_user_chats(user_id, retry_count=2):
                 continue
             return []
     return []
+
 
 def fetch_chat_history(session_id, retry_count=2):
     """Fetch chat history with retry logic."""
@@ -117,6 +134,7 @@ def fetch_chat_history(session_id, retry_count=2):
             return []
     return []
 
+
 # --- Initialize Session State AND Sync with Backend ---
 if "chats" not in st.session_state:
     st.session_state.chats = {}  # Initialize empty first
@@ -130,7 +148,7 @@ with st.sidebar:
         st.warning("Could not connect to backend for system info")
 
     st.sidebar.title("⚙️ Settings", help="config settings here")
-    
+
     # --- General Settings ---
     # Fetch existing users
     existing_users = fetch_all_users()
@@ -143,7 +161,9 @@ with st.sidebar:
     if "user_name" in st.session_state and st.session_state.user_name in existing_users:
         default_index = existing_users.index(st.session_state.user_name)
 
-    selected_option = st.sidebar.selectbox("Select User", user_options, index=default_index)
+    selected_option = st.sidebar.selectbox(
+        "Select User", user_options, index=default_index
+    )
 
     if selected_option == "+ Create New User":
         name = st.sidebar.text_input("Enter New Username", key="new_user_input")
@@ -167,7 +187,9 @@ with st.sidebar:
 
     # --- User Deletion UI ---
     if selected_option != "+ Create New User" and name:
-        if st.sidebar.button("🗑️ Delete User", help="Permanently delete this user and all data"):
+        if st.sidebar.button(
+            "🗑️ Delete User", help="Permanently delete this user and all data"
+        ):
             delete_user_api(name)
             # Clear state and refresh
             st.session_state.chats = {}
@@ -178,15 +200,15 @@ with st.sidebar:
 if not st.session_state.chats and st.session_state.get("user_name"):
     backend_chats = fetch_user_chats(st.session_state.user_name)
     for chat in backend_chats:
-        s_id = chat.get('session_id')
-        last_msg = chat.get('last_message', 'New Chat')
+        s_id = chat.get("session_id")
+        last_msg = chat.get("last_message", "New Chat")
         title = (last_msg[:30] + "...") if last_msg else "New Chat"
 
         if s_id:  # Only add if we have a valid session_id
             st.session_state.chats[s_id] = {
                 "title": title,
                 "messages": [],
-                "loaded": False
+                "loaded": False,
             }
 
 if "active_chat_id" not in st.session_state or st.session_state.active_chat_id is None:
@@ -201,8 +223,9 @@ if "active_chat_id" not in st.session_state or st.session_state.active_chat_id i
             "title": "New Chat",
             "messages": [],
             "thoughts": [],
-            "loaded": True
+            "loaded": True,
         }
+
 
 # Helper function to get the active chat object
 def get_active_chat():
@@ -222,6 +245,7 @@ def get_active_chat():
 
     return chat
 
+
 # --- Sidebar UI elements (System Info & Chat List) ---
 with st.sidebar:
     # --- System Info ---
@@ -229,9 +253,13 @@ with st.sidebar:
         try:
             config_data = get_system_config()
             if config_data and isinstance(config_data, dict):
-                st.markdown(f"**Ollama Model:** `{config_data.get('ollama_model', 'N/A')}`")
+                st.markdown(
+                    f"**Ollama Model:** `{config_data.get('ollama_model', 'N/A')}`"
+                )
                 st.markdown(f"**Neo4j URL:** `{config_data.get('neo4j_url', 'N/A')}`")
-                st.markdown(f"**DB connected:** `{config_data.get('container_name', 'N/A')}`")
+                st.markdown(
+                    f"**DB connected:** `{config_data.get('container_name', 'N/A')}`"
+                )
                 st.markdown(f"**Neo4j User:** `{config_data.get('neo4j_user', 'N/A')}`")
                 if config_data.get("status") != "success":
                     st.warning("⚠️ Some services may not be connected")
@@ -252,7 +280,7 @@ with st.sidebar:
                 "title": "New Chat",
                 "messages": [],
                 "thoughts": [],
-                "loaded": True
+                "loaded": True,
             }
             st.session_state.active_chat_id = new_chat_id
             st.rerun()
@@ -288,16 +316,18 @@ with st.sidebar:
                 # If the deleted chat was the active one, select a new active chat
                 if st.session_state.active_chat_id == chat_id:
                     remaining_chats = list(st.session_state.chats.keys())
-                    st.session_state.active_chat_id = remaining_chats[0] if remaining_chats else None
+                    st.session_state.active_chat_id = (
+                        remaining_chats[0] if remaining_chats else None
+                    )
                 st.rerun()
 
         with col2:
             # Button to select the chat
             if st.button(
-                chat_data['title'],
+                chat_data["title"],
                 key=f"chat_button_{chat_id}",
                 use_container_width=True,
-                disabled=(chat_id == st.session_state.active_chat_id)
+                disabled=(chat_id == st.session_state.active_chat_id),
             ):
                 st.session_state.active_chat_id = chat_id
                 st.rerun()
@@ -309,7 +339,7 @@ with st.sidebar:
             active_chat["thoughts"] = []
             active_chat["messages"] = []
             st.rerun()
-            
+
     st.write("OPSEC ©LOLLIMERD 2025")
 
 active_chat = get_active_chat()
@@ -319,8 +349,10 @@ if active_chat is None:
     st.error("No active chat available")
 else:
     # --- UI Elements ---
-    st.title(f"🧠 Lollimerd's AI")
-    st.header("""**:violet-badge[:material/star: OSU GPT]** **:blue-badge[:material/star: Ollama]** **:green-badge[:material/Verified: Mixture of Experts (MOE) model -> Qwen3]** **:blue-badge[:material/component_exchange: GraphRAG]**""")
+    st.title("🧠 StackExchange Agent")
+    st.header(
+        """**:violet-badge[:material/star: OSU GPT]** **:blue-badge[:material/star: Ollama]** **:green-badge[:material/Verified: Mixture of Experts (MOE) model -> Qwen3]** **:blue-badge[:material/component_exchange: GraphRAG]**"""
+    )
     st.markdown("""Ask a question to get a real-time analysis from the knowledge graph. Feel free to ask the bot whatever your queries may be.
                 Be specific in what you are asking, create table, generate graph of asking for data within a specified duration of time.
                 Inferences, analysis and predictions are supported too :)
@@ -356,7 +388,9 @@ else:
             active_chat["messages"].append({"role": "user", "content": prompt})
 
             # Set a title for new chats based on the first message
-            if active_chat["title"] == "New Chat" or active_chat["title"].startswith("Chat "):
+            if active_chat["title"] == "New Chat" or active_chat["title"].startswith(
+                "Chat "
+            ):
                 active_chat["title"] = prompt[:15] + "..."  # Truncate for display
 
             with st.chat_message(name=st.session_state.get("user_name", "User")):
@@ -364,7 +398,9 @@ else:
 
             with st.chat_message(name="Assistant"):
                 with st.spinner("Analyzing graph data..."):
-                    thought_container = st.expander("Show Agent Thoughts", expanded=True)
+                    thought_container = st.expander(
+                        "Show Agent Thoughts", expanded=True
+                    )
                     thought_placeholder = thought_container.empty()
                     answer_placeholder = st.empty()
                     thought_content = ""
@@ -375,14 +411,14 @@ else:
                         with httpx.Client(timeout=timeout) as client:
                             # Send request with session_id (history is now handled by backend)
                             with connect_sse(
-                                client, 
-                                "POST", 
-                                FASTAPI_URL, 
+                                client,
+                                "POST",
+                                FASTAPI_URL,
                                 json={
                                     "question": prompt,
                                     "session_id": st.session_state.active_chat_id,
-                                    "user_id": st.session_state.get("user_name", "")
-                                }
+                                    "user_id": st.session_state.get("user_name", ""),
+                                },
                             ) as event_source:
                                 for sse in event_source.iter_sse():
                                     if sse.data:
@@ -392,19 +428,27 @@ else:
 
                                             # Append chunks to full strings
                                             chunk_content = data.get("content", "")
-                                            chunk_thought = data.get("reasoning_content", "")
+                                            chunk_thought = data.get(
+                                                "reasoning_content", ""
+                                            )
 
                                             answer_content += chunk_content
                                             thought_content += chunk_thought
 
                                             # Display the current accumulated output in the UI
                                             if answer_content:
-                                                answer_placeholder.markdown(answer_content + "▌")
+                                                answer_placeholder.markdown(
+                                                    answer_content + "▌"
+                                                )
                                             if thought_content:
-                                                thought_placeholder.markdown(thought_content + "▌")
+                                                thought_placeholder.markdown(
+                                                    thought_content + "▌"
+                                                )
 
                                         except json.JSONDecodeError as e:
-                                            logger.error(f"Error decoding JSON: {sse.data}")
+                                            logger.error(
+                                                f"Error decoding JSON: {sse.data}"
+                                            )
                                             st.error(f"Decoding error: {str(e)[:100]}")
                                             continue
 
@@ -418,7 +462,7 @@ else:
                                 render_message_with_mermaid(thought_content)
                             else:
                                 st.info("No agent thoughts captured")
-                        
+
                         if answer_content:
                             render_message_with_mermaid(answer_content)
                         else:
@@ -436,10 +480,14 @@ else:
 
                     except httpx.TimeoutException as e:
                         logger.error(f"Request timeout: {e}")
-                        st.error("The request timed out. The server is taking too long to respond. Please try again later.")
+                        st.error(
+                            "The request timed out. The server is taking too long to respond. Please try again later."
+                        )
                     except requests.exceptions.ConnectionError as e:
                         logger.error(f"Connection error: {e}")
-                        st.error(f"Could not connect to the API at {BACKEND_URL}. Is the backend running?")
+                        st.error(
+                            f"Could not connect to the API at {BACKEND_URL}. Is the backend running?"
+                        )
                     except requests.exceptions.RequestException as e:
                         logger.error(f"Request exception: {e}")
                         st.error(f"API Error: {str(e)[:200]}")
@@ -458,4 +506,3 @@ else:
         height=0,
         width=0,
     )
-
