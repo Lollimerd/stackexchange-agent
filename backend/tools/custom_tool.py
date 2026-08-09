@@ -1,4 +1,10 @@
-from setup.init import graph, EMBEDDINGS, create_vector_stores, ANSWER_LLM, RERANKER_MODEL
+from setup.init import (
+    graph,
+    EMBEDDINGS,
+    create_vector_stores,
+    ANSWER_LLM,
+    RERANKER_MODEL,
+)
 from langchain.retrievers import EnsembleRetriever, ContextualCompressionRetriever
 from langchain.retrievers.document_compressors import CrossEncoderReranker
 from typing import List, Dict
@@ -22,7 +28,7 @@ CALL {
   // If node is a Question, use it directly
   WITH node
   MATCH (q:Question)
-  WHERE node:Question AND element.id(q) = element.id(node)
+  WHERE node:Question AND elementId(q) = elementId(node)
   RETURN q
   UNION
   // If node is an Answer, route to its Question
@@ -126,11 +132,11 @@ LIMIT 50
 # Create vector stores with error handling
 try:
     stores = create_vector_stores(graph, EMBEDDINGS, retrieval_query)
-    tagstore = stores.get('tagstore')
-    userstore = stores.get('userstore')
-    questionstore = stores.get('questionstore')
-    answerstore = stores.get('answerstore')
-    
+    tagstore = stores.get("tagstore")
+    userstore = stores.get("userstore")
+    questionstore = stores.get("questionstore")
+    answerstore = stores.get("answerstore")
+
     # Verify all stores were created
     if not all([tagstore, userstore, questionstore, answerstore]):
         logger.warning("Some vector stores were not created successfully")
@@ -142,7 +148,7 @@ except Exception as e:
 try:
     compressor = CrossEncoderReranker(
         model=RERANKER_MODEL,
-        top_n=10  # This will return the top n most relevant documents.
+        top_n=10,  # This will return the top n most relevant documents.
     )
 except Exception as e:
     logger.error(f"Error creating compressor: {e}")
@@ -151,6 +157,7 @@ except Exception as e:
 # ===========================================================================================================================================================
 # Setting Up Retrievers from vectorstores for EnsembleRetriever
 # ===========================================================================================================================================================
+
 
 # setting up retrievers from vectorstores with custom tailormade finetuning
 def retrieve_context(question: str) -> List[Document]:
@@ -165,14 +172,14 @@ def retrieve_context(question: str) -> List[Document]:
     try:
         # Define the common search arguments once
         common_search_kwargs = {
-            'k': 20,
-            'params': {
-                'embedding': EMBEDDINGS.embed_query(question),
-                'keyword_query': escape_lucene_chars(question)
+            "k": 20,
+            "params": {
+                "embedding": EMBEDDINGS.embed_query(question),
+                "keyword_query": escape_lucene_chars(question),
             },
-            'fetch_k': 100,
-            'score_threshold': 0.95,
-            'lambda_mult': 0.5,
+            "fetch_k": 100,
+            "score_threshold": 0.95,
+            "lambda_mult": 0.5,
         }
 
         # Use a list of vectorstores
@@ -182,7 +189,7 @@ def retrieve_context(question: str) -> List[Document]:
         retrievers = [
             store.as_retriever(
                 search_type="similarity_score_threshold",
-                search_kwargs=common_search_kwargs
+                search_kwargs=common_search_kwargs,
             )
             for store in vectorstores
         ]
@@ -195,8 +202,7 @@ def retrieve_context(question: str) -> List[Document]:
         logger.info("Retrieving and reranking dynamic context")
         # Wrap your ensemble retriever with the compression retriever.
         compression_retriever = ContextualCompressionRetriever(
-            base_compressor=compressor,
-            base_retriever=ensemble_retriever
+            base_compressor=compressor, base_retriever=ensemble_retriever
         )
 
         reranked_docs = compression_retriever.invoke(question)
@@ -206,6 +212,7 @@ def retrieve_context(question: str) -> List[Document]:
         logger.error(f"Error retrieving context: {e}")
         # Return empty list instead of crashing
         return []
+
 
 def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
     """Format chat history for inclusion in the prompt."""
@@ -232,31 +239,32 @@ def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
 def process_with_topic_analysis(input_dict: Dict) -> Dict:
     """Enriches input with topic continuity analysis before processing."""
     try:
-        from utils.memory import calculate_topic_similarity, get_relevant_context_for_continuation
-        
+        from utils.memory import (
+            calculate_topic_similarity,
+            get_relevant_context_for_continuation,
+        )
+
         question = input_dict.get("question", "")
         session_topic = input_dict.get("session_topic", "")
         session_id = input_dict.get("session_id", "")
-        
+
         # Calculate similarity
         similarity_data = calculate_topic_similarity(question, session_topic)
-        
+
         # Get relevant previous context
         relevant_context = []
         if session_id:
             relevant_context = get_relevant_context_for_continuation(
-                session_id, 
-                question,
-                max_messages=3
+                session_id, question, max_messages=3
             )
-        
+
         # Format relevant context
         relevant_context_str = ""
         if relevant_context:
             for msg in relevant_context:
                 role = "User" if msg["role"] == "user" else "Assistant"
                 relevant_context_str += f"{role}: {msg['content']}\n\n"
-        
+
         # Return enriched input
         return {
             **input_dict,
@@ -264,7 +272,8 @@ def process_with_topic_analysis(input_dict: Dict) -> Dict:
             "topic_similarity_score": f"{similarity_data['similarity_score']:.2f}",
             "topic_confidence": similarity_data["confidence_level"],
             "topic_status": similarity_data["recommendation"],
-            "relevant_context": relevant_context_str or "[No previous context available]",
+            "relevant_context": relevant_context_str
+            or "[No previous context available]",
             "continuity_instruction": similarity_data["recommendation"],
         }
     except Exception as e:
@@ -284,16 +293,30 @@ def process_with_topic_analysis(input_dict: Dict) -> Dict:
 try:
     graph_rag_chain = (
         RunnablePassthrough.assign(
-            context=lambda x: format_docs_with_metadata(retrieve_context(x["question"])),
-            chat_history_formatted=lambda x: format_chat_history(x.get("chat_history", [])),
+            context=lambda x: format_docs_with_metadata(
+                retrieve_context(x["question"])
+            ),
+            chat_history_formatted=lambda x: format_chat_history(
+                x.get("chat_history", [])
+            ),
         )
         | RunnablePassthrough.assign(
             session_topic=lambda x: x.get("session_topic", "General Discussion"),
-            topic_similarity_score=lambda x: process_with_topic_analysis(x).get("topic_similarity_score", "0.50"),
-            topic_confidence=lambda x: process_with_topic_analysis(x).get("topic_confidence", "low"),
-            topic_status=lambda x: process_with_topic_analysis(x).get("topic_status", ""),
-            relevant_context=lambda x: process_with_topic_analysis(x).get("relevant_context", ""),
-            continuity_instruction=lambda x: process_with_topic_analysis(x).get("continuity_instruction", ""),
+            topic_similarity_score=lambda x: process_with_topic_analysis(x).get(
+                "topic_similarity_score", "0.50"
+            ),
+            topic_confidence=lambda x: process_with_topic_analysis(x).get(
+                "topic_confidence", "low"
+            ),
+            topic_status=lambda x: process_with_topic_analysis(x).get(
+                "topic_status", ""
+            ),
+            relevant_context=lambda x: process_with_topic_analysis(x).get(
+                "relevant_context", ""
+            ),
+            continuity_instruction=lambda x: process_with_topic_analysis(x).get(
+                "continuity_instruction", ""
+            ),
         )
         | analyst_prompt
         | ANSWER_LLM
