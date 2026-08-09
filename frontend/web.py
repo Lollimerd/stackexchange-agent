@@ -11,6 +11,13 @@ from utils.util import (
     render_message_with_mermaid,
     display_container_name,
     get_system_config,
+    fetch_all_users,
+    fetch_user_chats,
+    fetch_chat_history,
+    delete_user_api,
+    delete_chat_api,
+    BACKEND_URL,
+    FASTAPI_URL,
 )
 
 # Setup logging
