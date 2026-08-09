@@ -235,42 +235,63 @@ def render_page():
                         st.success(f"Deleted row {index + 1}")
                         st.rerun()
 
-            # Create visualization
-            if len(edited_df) > 1:
-                st.subheader("📈 Import Trends")
+            # --- 📦 Tag Import Summary Section ---
+            st.divider()
+            st.subheader("📦 Tag Import Summary")
+            st.caption("Total pages imported across all sessions, classified by tag.")
 
-                # Questions imported over time
-                fig = px.bar(
-                    edited_df,
-                    x="Date",
-                    y="Questions",
-                    title="Questions Imported Over Time",
-                    labels={
-                        "Date": "Import Date",
-                        "Questions": "Questions Imported",
+            # Aggregate data based on Tag List and Pages
+            tag_stats = {}
+            for _, row in edited_df.iterrows():
+                tags = row.get("Tag List", [])
+                pages = row.get("Pages", 0)
+
+                if isinstance(tags, list):
+                    for tag in tags:
+                        if tag not in tag_stats:
+                            tag_stats[tag] = {"Total Pages": 0, "Import Sessions": 0}
+                        tag_stats[tag]["Total Pages"] += pages if pages else 0
+                        tag_stats[tag]["Import Sessions"] += 1
+
+            if tag_stats:
+                # Convert to DataFrame for display
+                summary_df = pd.DataFrame.from_dict(tag_stats, orient="index")
+                summary_df.index.name = "Tag"
+                summary_df = summary_df.reset_index().sort_values(
+                    by="Total Pages", ascending=False
+                )
+
+                # Display table
+                st.dataframe(
+                    summary_df,
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Tag": st.column_config.TextColumn("Tag", width="medium"),
+                        "Total Pages": st.column_config.NumberColumn(
+                            "Total Pages Imported", format="%d"
+                        ),
+                        "Import Sessions": st.column_config.NumberColumn(
+                            "Total Sessions", format="%d"
+                        ),
                     },
                 )
-                fig.update_layout(xaxis_tickangle=-45)
-                st.plotly_chart(fig, use_container_width=True)
 
-                # Tags distribution
-                if len(edited_df) > 0:
-                    # Count unique tags across all imports
-                    all_tags = []
-                    for tags_list in edited_df["Tag List"]:
-                        if tags_list:
-                            all_tags.extend(tags_list)
-
-                    if all_tags:
-                        tag_counts = pd.Series(all_tags).value_counts().head(10)
-                        fig2 = px.bar(
-                            x=tag_counts.values,
-                            y=tag_counts.index,
-                            orientation="h",
-                            title="Most Imported Tags (Top 10)",
-                            labels={"x": "Import Count", "y": "Tag"},
-                        )
-                        st.plotly_chart(fig2, use_container_width=True)
+                # Visualization: Horizontal Bar Chart of Pages per Tag
+                fig_tag = px.bar(
+                    summary_df,
+                    x="Total Pages",
+                    y="Tag",
+                    orientation="h",
+                    title="Pages Imported per Tag",
+                    labels={"Total Pages": "Total Pages", "Tag": "Tag"},
+                    color="Total Pages",
+                    color_continuous_scale="Viridis",
+                )
+                fig_tag.update_layout(yaxis={"categoryorder": "total ascending"})
+                st.plotly_chart(fig_tag, use_container_width=True)
+            else:
+                st.info("No tag information available to summarize.")
         else:
             st.info(
                 "No import history found. Start importing data to see statistics here."
