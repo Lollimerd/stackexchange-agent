@@ -1,4 +1,4 @@
-version: '3.13.5-slim'
+version: '3.13.5'
 name: stackoverflow-chatbot
 
 services:
