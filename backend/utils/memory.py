@@ -1,5 +1,6 @@
 from langchain_neo4j import Neo4jChatMessageHistory, Neo4jGraph
 from setup.init import NEO4J_URL, NEO4J_USERNAME, NEO4J_PASSWORD
+from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
@@ -49,15 +50,16 @@ def add_user_message_to_session(session_id: str, content: str):
         history.add_user_message(content)
 
         # 2. Enforce HAS_MESSAGE relationship using the LAST_MESSAGE pointer
-        # FIX: Use pooled connection instead of creating new one
+        # FIX: Also set created_at timestamp and use pooled connection
         graph = get_graph_instance()
         # Match the session and the message marked as LAST_MESSAGE (which is the one just added)
-        # Then create HAS_MESSAGE
+        # Then create HAS_MESSAGE and set created_at
         query = """
         MATCH (s:Session {id: $session_id})-[:LAST_MESSAGE]->(m:Message)
+        SET m.created_at = $timestamp
         MERGE (s)-[:HAS_MESSAGE]->(m)
         """
-        graph.query(query, params={"session_id": session_id})
+        graph.query(query, params={"session_id": session_id, "timestamp": datetime.now().isoformat()})
         logger.debug(f"User message added to session {session_id}")
     except Exception as e:
         logger.error(f"Error adding user message to session {session_id}: {e}")
@@ -74,13 +76,17 @@ def add_ai_message_to_session(session_id: str, content: str, thought: str = None
         # FIX: Use pooled connection
         graph = get_graph_instance()
         # Match the session and the message marked as LAST_MESSAGE
-        # Set the thought property and create HAS_MESSAGE
+        # Set the thought property, created_at, and create HAS_MESSAGE
         query = """
         MATCH (s:Session {id: $session_id})-[:LAST_MESSAGE]->(m:Message)
-        SET m.thought = $thought
+        SET m.thought = $thought, m.created_at = $timestamp
         MERGE (s)-[:HAS_MESSAGE]->(m)
         """
-        graph.query(query, params={"session_id": session_id, "thought": thought})
+        graph.query(query, params={
+            "session_id": session_id, 
+            "thought": thought, 
+            "timestamp": datetime.now().isoformat()
+        })
         logger.debug(f"AI message added to session {session_id}")
     except Exception as e:
         logger.error(f"Error adding AI message to session {session_id}: {e}")
@@ -98,8 +104,9 @@ def get_all_sessions():
         query = """
         MATCH (s:Session)
         OPTIONAL MATCH (s)-[:HAS_MESSAGE]->(m:Message)
-        WITH s, m ORDER BY m.created_at DESC LIMIT 1
-        RETURN s.id AS session_id, m.content AS last_message
+        WITH s, m ORDER BY coalesce(m.created_at, m.timestamp, elementId(m)) DESC
+        WITH s, head(collect(m)) AS last_msg
+        RETURN s.id AS session_id, last_msg.content AS last_message
         LIMIT 100
         """
 
@@ -142,8 +149,9 @@ def get_user_sessions(user_id: str):
         query = """
         MATCH (u:AppUser {id: $user_id})-[:HAS_SESSION]->(s:Session)
         OPTIONAL MATCH (s)-[:HAS_MESSAGE]->(m:Message)
-        WITH s, m ORDER BY m.created_at DESC LIMIT 1
-        RETURN s.id AS session_id, m.content AS last_message
+        WITH s, m ORDER BY coalesce(m.created_at, m.timestamp, elementId(m)) DESC
+        WITH s, head(collect(m)) AS last_msg
+        RETURN s.id AS session_id, last_msg.content AS last_message
         LIMIT 100
         """
 

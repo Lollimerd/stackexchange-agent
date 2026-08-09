@@ -3,7 +3,7 @@ import json, requests, datetime, uuid, httpx, os, logging
 from httpx_sse import connect_sse
 import streamlit as st
 # from st_pages import add_page_title, get_nav_from_toml
-# import streamlit.components.v1 as components
+import streamlit.components.v1 as components
 # from streamlit_timeline import timeline
 from utils.util import render_message_with_mermaid, display_container_name, get_system_config
 
@@ -446,3 +446,16 @@ else:
                     except Exception as e:
                         logger.error(f"Unexpected error: {e}")
                         st.error(f"Unexpected error: {str(e)[:200]}")
+
+    # --- Auto-Scroll to Bottom ---
+    components.html(
+        """
+        <script>
+            var scrollingElement = (document.scrollingElement || document.body);
+            scrollingElement.scrollTop = scrollingElement.scrollHeight;
+        </script>
+        """,
+        height=0,
+        width=0,
+    )
+

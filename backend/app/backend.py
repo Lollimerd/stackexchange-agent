@@ -122,7 +122,7 @@ def get_chat_messages(session_id: str):
         query = """
         MATCH (s:Session {id: $session_id})-[:HAS_MESSAGE]->(m:Message)
         RETURN m.type AS role, m.content AS content, m.thought AS thought
-        ORDER BY m.created_at ASC, elementId(m) ASC
+        ORDER BY coalesce(m.created_at, m.timestamp, elementId(m)) ASC
         LIMIT 1000
         """
         results = graph.query(query, params={"session_id": session_id})
