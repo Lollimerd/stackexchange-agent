@@ -6,6 +6,9 @@ from langchain_core.documents import Document
 from prompts.st_overflow import analyst_prompt
 from langchain_core.runnables import RunnablePassthrough
 from utils.util import format_docs_with_metadata, escape_lucene_chars
+import logging
+
+logger = logging.getLogger(__name__)
 
 # ===========================================================================================================================================================
 # Crafting custom cypher retrieval queries
@@ -45,10 +48,10 @@ CALL {
 WITH DISTINCT q AS question, node, score
 
 // Community detection: compute overlap and optionally filter to same community when available
-WITH 
-  question, 
-  node, 
-  score, 
+WITH
+  question,
+  node,
+  score,
   any(x IN coalesce(question.communityId, []) WHERE x IN coalesce(node.communityId, [])) AS sameCommunity,
   (size(coalesce(question.communityId, [])) > 0 AND size(coalesce(node.communityId, [])) > 0) AS bothHaveCommunity
 WHERE NOT bothHaveCommunity OR sameCommunity
@@ -100,7 +103,7 @@ WITH question, score, sameCommunity, qComm, nComm, questionDetails, askerDetails
 
 // Final projection
 RETURN
-  'Title: ' + coalesce(question.title, '') + '\nBody: ' + coalesce(question.body, '') AS text,
+  'Title: ' + coalesce(question.title, '') + '\\nBody: ' + coalesce(question.body, '') AS text,
   {
     question_details: questionDetails,
     asked_by: askerDetails,
@@ -117,24 +120,36 @@ RETURN
   } AS metadata,
   score
 ORDER BY score DESC
-LIMIT 10
+LIMIT 50
 """
 
-# Create vector stores
-stores = create_vector_stores(graph, EMBEDDINGS, retrieval_query)
-tagstore = stores['tagstore']
-userstore = stores['userstore']
-questionstore = stores['questionstore']
-answerstore = stores['answerstore']
+# Create vector stores with error handling
+try:
+    stores = create_vector_stores(graph, EMBEDDINGS, retrieval_query)
+    tagstore = stores.get('tagstore')
+    userstore = stores.get('userstore')
+    questionstore = stores.get('questionstore')
+    answerstore = stores.get('answerstore')
+    
+    # Verify all stores were created
+    if not all([tagstore, userstore, questionstore, answerstore]):
+        logger.warning("Some vector stores were not created successfully")
+except Exception as e:
+    logger.error(f"Error creating vector stores: {e}")
+    raise
 
 # create compressor
-compressor = CrossEncoderReranker(
+try:
+    compressor = CrossEncoderReranker(
         model=RERANKER_MODEL,
         top_n=10  # This will return the top n most relevant documents.
     )
+except Exception as e:
+    logger.error(f"Error creating compressor: {e}")
+    raise
 
 # ===========================================================================================================================================================
-# Setting Up Retrievers from vectorstores for EnsembleRetriever 
+# Setting Up Retrievers from vectorstores for EnsembleRetriever
 # ===========================================================================================================================================================
 
 # setting up retrievers from vectorstores with custom tailormade finetuning
@@ -147,74 +162,85 @@ def retrieve_context(question: str) -> List[Document]:
             - page_content (str): The main text content (e.g., question title and body).
             - metadata (dict): Structured metadata including question details, user info, tags, answers, and similarity score.
     """
-    
-    # Define the common search arguments once
-    common_search_kwargs = {
-        'k': 10,
-        'params': {
-            'embedding': EMBEDDINGS.embed_query(question),
-            'keyword_query': escape_lucene_chars(question)
+    try:
+        # Define the common search arguments once
+        common_search_kwargs = {
+            'k': 10,
+            'params': {
+                'embedding': EMBEDDINGS.embed_query(question),
+                'keyword_query': escape_lucene_chars(question)
             },
-        'fetch_k': 100,
-        'score_threshold': 0.85,
-        'lambda_mult': 0.5,
-    }
+            'fetch_k': 100,
+            'score_threshold': 0.85,
+            'lambda_mult': 0.5,
+        }
 
-    # Use a list of vectorstores
-    vectorstores = [tagstore, userstore, questionstore, answerstore]
+        # Use a list of vectorstores
+        vectorstores = [tagstore, userstore, questionstore, answerstore]
 
-    # Create the retrievers using a list comprehension
-    retrievers = [
-        store.as_retriever(
-            search_type="similarity_score_threshold",
-            search_kwargs=common_search_kwargs
+        # Create the retrievers using a list comprehension
+        retrievers = [
+            store.as_retriever(
+                search_type="similarity_score_threshold",
+                search_kwargs=common_search_kwargs
+            )
+            for store in vectorstores
+        ]
+
+        # init ensemble retriever
+        ensemble_retriever = EnsembleRetriever(
+            retrievers=retrievers,
+            # weights=[0.25, 0.25, 0.25, 0.25]  # Adjust weights based on importance
         )
-        for store in vectorstores
-    ]
 
-    # init ensemble retriever
-    ensemble_retriever = EnsembleRetriever(
-        retrievers=retrievers,
-        # weights=[0.25, 0.25, 0.25, 0.25]  # Adjust weights based on importance
-    )
+        logger.info("Retrieving and reranking dynamic context")
+        # Wrap your ensemble retriever with the compression retriever.
+        compression_retriever = ContextualCompressionRetriever(
+            base_compressor=compressor,
+            base_retriever=ensemble_retriever
+        )
 
-    # print("---RETRIEVING CONTEXT---")
-    # return ensemble_retriever.invoke(question, k=3)
-
-    print("--- 🌐 RETRIEVING AND RERANKING DYNAMIC CONTEXT ---")
-    # Wrap your ensemble retriever with the compression retriever.
-    compression_retriever = ContextualCompressionRetriever(
-        base_compressor=compressor,
-        base_retriever=ensemble_retriever
-    )
-    
-    reranked_docs = compression_retriever.invoke(question)
-    return reranked_docs
+        reranked_docs = compression_retriever.invoke(question)
+        logger.info(f"Retrieved {len(reranked_docs)} documents")
+        return reranked_docs
+    except Exception as e:
+        logger.error(f"Error retrieving context: {e}")
+        # Return empty list instead of crashing
+        return []
 
 def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
     """Format chat history for inclusion in the prompt."""
-    if not chat_history:
+    try:
+        if not chat_history:
+            return ""
+
+        formatted_history = []
+        for msg in chat_history:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if role == "user":
+                formatted_history.append(f"User: {content}")
+            elif role == "assistant":
+                # Only include the main content, not the thought process
+                formatted_history.append(f"Assistant: {content}")
+
+        return "\n".join(formatted_history)
+    except Exception as e:
+        logger.error(f"Error formatting chat history: {e}")
         return ""
-    
-    formatted_history = []
-    for msg in chat_history:
-        role = msg.get("role", "")
-        content = msg.get("content", "")
-        if role == "user":
-            formatted_history.append(f"User: {content}")
-        elif role == "assistant":
-            # Only include the main content, not the thought process
-            formatted_history.append(f"Assistant: {content}")
-    
-    return "\n".join(formatted_history)
 
 
 # This chain is activated for GraphRAG.
-graph_rag_chain = (
-    RunnablePassthrough.assign(
-        context=lambda x: format_docs_with_metadata(retrieve_context(x["question"])),
-        chat_history_formatted=lambda x: format_chat_history(x.get("chat_history", []))
+try:
+    graph_rag_chain = (
+        RunnablePassthrough.assign(
+            context=lambda x: format_docs_with_metadata(retrieve_context(x["question"])),
+            chat_history_formatted=lambda x: format_chat_history(x.get("chat_history", []))
+        )
+        | analyst_prompt
+        | ANSWER_LLM
     )
-    | analyst_prompt
-    | ANSWER_LLM
-)
+    logger.info("GraphRAG chain initialized successfully")
+except Exception as e:
+    logger.error(f"Error initializing GraphRAG chain: {e}")
+    raise
