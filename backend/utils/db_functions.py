@@ -44,7 +44,8 @@ def get_import_history(limit: int = 20):
     history_query = """
     MATCH (log:ImportLog)
     RETURN log.id as id, log.timestamp as timestamp, log.total_questions as questions,
-           log.total_tags as tags, log.total_pages as pages, log.tags_list as tags_list
+           log.total_tags as tags, log.total_pages as pages, log.tags_list as tags_list,
+           coalesce(log.site, 'stackoverflow') as site
     ORDER BY log.timestamp DESC
     LIMIT $limit
     """

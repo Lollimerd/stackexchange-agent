@@ -1,11 +1,11 @@
-# StackExchange GraphRAG Agent
+# Sanctum
 
-> A private RAG-powered technical Q&A agent backed by a Neo4j knowledge graph and local LLMs.
+> A sacred, private chamber — your personal AI knowledge sanctuary. A privacy-centric GraphRAG agent backed by a Neo4j knowledge graph and local LLMs.
 
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Python](https://img.shields.io/badge/python-3.13+-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-green)
-![Streamlit](https://img.shields.io/badge/Streamlit-1.53+-red)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.136+-green)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.56+-red)
 
 ---
 
@@ -30,7 +30,7 @@ cp .env.example .env
 
 ## 📋 What It Does
 
-This agent answers technical questions by:
+Sanctum answers technical questions by:
 
 1. **Retrieving** relevant context from a Neo4j graph (Questions, Answers, Users, Tags)
 2. **Reranking** results for relevance
@@ -64,23 +64,23 @@ graph TD
 
 ### Components
 
-| Service | Port | Description |
-|---------|------|-------------|
-| **Streamlit Frontend** | 8510 | Multi-chat UI with graph explorer & dashboard |
-| **FastAPI Backend** | 8000 | Agent orchestration, streaming, ingestion |
-| **Neo4j** | 7474, 7687 | Knowledge graph with vector indexes |
-| **Ollama** | 11430 | Local LLM inference |
+| Service                | Port       | Description                                   |
+| ---------------------- | ---------- | --------------------------------------------- |
+| **Streamlit Frontend** | 8510       | Multi-chat UI with graph explorer & dashboard |
+| **FastAPI Backend**    | 8000       | Agent orchestration, streaming, ingestion     |
+| **Neo4j**              | 7474, 7687 | Knowledge graph with vector indexes           |
+| **Ollama**             | 11430      | Local LLM inference                           |
 
 ---
 
 ## 🧠 Models Used
 
-| Model | Purpose | Context |
-|-------|---------|---------|
-| `qwen3.5:4b` | Main chat & reasoning | 128K |
-| `qwen3.5:0.8b` | Chat history summarization | 40K |
-| `snowflake-arctic-embed2` | Embeddings | 8K |
-| `BAAI/bge-reranker-base` | Document reranking | - |
+| Model                     | Purpose                    | Context |
+| ------------------------- | -------------------------- | ------- |
+| `qwen3.5:4b`              | Main chat & reasoning      | 128K    |
+| `qwen3.5:0.8b`            | Chat history summarization | 40K     |
+| `snowflake-arctic-embed2` | Embeddings                 | 8K      |
+| `BAAI/bge-reranker-base`  | Document reranking         | -       |
 
 ---
 
@@ -93,7 +93,7 @@ graph TD
 - **Multi-Chat Support** — Independent sessions with persistent history
 
 ### Data & Visualization
-- **StackExchange Loader** — Import by tag or top-voted questions
+- **StackExchange Loader** — Import by tag or top-voted questions from any SE site
 - **Graph Explorer** — Interactive Neo4j visualization
 - **Analytics Dashboard** — Import history & database statistics
 
@@ -145,13 +145,17 @@ Infra:    Docker Compose, Neo4j (APOC + GDS plugins)
 
 ### Environment Variables
 
-Create a `.env` file:
+Create a `.env` file (see `.env.example`):
 
 ```bash
 # Neo4j
 NEO4J_URL=bolt://localhost:7687
 NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=your_password_here
+
+# Ollama
+OLLAMA_BASE_URL=http://localhost:11434
+EMBEDDING_MODEL=snowflake-arctic-embed2
 
 # Stack Exchange API (optional, for higher rate limits)
 STACKEXCHANGE_API_KEY=your_key_here
@@ -172,26 +176,48 @@ ollama pull qwen3.5:0.8b
 
 ## 🎯 API Endpoints
 
+### System
+| Endpoint  | Method | Description                            |
+| --------- | ------ | -------------------------------------- |
+| `/`       | GET    | API status                             |
+| `/health` | GET    | Health check                           |
+| `/config` | GET    | Runtime configuration (model, DB info) |
+
 ### Chat & Agent
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/agent/ask` | POST | Stream agent responses (SSE) |
-| `/api/v1/chat/{id}` | GET/DELETE | Fetch/delete chat history |
-| `/api/v1/users` | GET | List all users |
+| Endpoint             | Method | Description                  |
+| -------------------- | ------ | ---------------------------- |
+| `/agent/ask`         | POST   | Stream agent responses (SSE) |
+| `/chat/{session_id}` | GET    | Fetch chat message history   |
+| `/chat/{session_id}` | DELETE | Delete a chat session        |
+
+### Users
+| Endpoint                | Method | Description                      |
+| ----------------------- | ------ | -------------------------------- |
+| `/users`                | GET    | List all users                   |
+| `/user/{user_id}/chats` | GET    | List sessions for a user         |
+| `/user/{user_id}`       | DELETE | Delete a user and all their data |
 
 ### Data Ingestion
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/ingest` | POST | Import StackExchange data |
-| `/api/v1/ingest/record` | POST/PUT/DELETE | Manage import sessions |
+| Endpoint                     | Method | Description                |
+| ---------------------------- | ------ | -------------------------- |
+| `/ingest`                    | POST   | Import StackExchange data  |
+| `/ingest/record`             | POST   | Create an import log entry |
+| `/ingest/record/{import_id}` | PUT    | Update an import log entry |
+| `/ingest/record/{import_id}` | DELETE | Delete an import log entry |
 
 ### Analytics
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/v1/stats/summary` | GET | Database statistics |
-| `/api/v1/stats/history` | GET | Import history |
-| `/api/v1/graph/search` | GET | Search nodes |
-| `/api/v1/graph/sample` | POST | Graph sample for visualization |
+| Endpoint               | Method | Description                    |
+| ---------------------- | ------ | ------------------------------ |
+| `/stats/summary`       | GET    | Database statistics            |
+| `/stats/history`       | GET    | Import history                 |
+| `/stats/entity_counts` | GET    | Node/entity counts             |
+| `/graph/search`        | GET    | Search nodes                   |
+| `/graph/sample`        | POST   | Graph sample for visualization |
+
+### Admin
+| Endpoint           | Method | Description                                        |
+| ------------------ | ------ | -------------------------------------------------- |
+| `/repair-sessions` | POST   | Repair sessions with missing message relationships |
 
 ---
 
@@ -240,7 +266,7 @@ docker compose up -d
 
 **Volumes:**
 - `ollama_data` — Persistent model storage
-- `neo4j_stackoverflow_data` — Graph database
+- `neo4j_stackexchange_data` — Graph database
 
 ---
 
@@ -253,7 +279,7 @@ docker compose up -d
 - `Tag` — name
 - `Session` — chat session metadata
 - `Message` — conversation history
-- `ImportLog` — ingestion tracking
+- `ImportLog` — ingestion tracking (includes site, tags, page count)
 
 ### Relationships
 ```
@@ -309,7 +335,8 @@ MIT License — see LICENSE for details.
 - **Ollama** — Local LLM runtime
 - **LangChain** — Agent framework
 - **Streamlit** — Rapid UI development
+- **Docker** — Containerisation & orchestration via Docker Compose
 
 ---
 
-**Built with ❤️ using local LLMs**
+**Built with ❤️ using local LLMs — your knowledge stays yours.**

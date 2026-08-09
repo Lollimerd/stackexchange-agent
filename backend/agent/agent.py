@@ -1,8 +1,12 @@
 from langchain.agents import create_agent
+from deepagents import create_deep_agent
 from setup.init_config import answer_LLM
-from tools.graph_rag_tool import graph_rag_tool
-from middleware.in_built import summarize, clear_tool_uses
+from tools.auto.graph_rag_tool import graph_rag_tool as auto_tool
+from tools.custom.custom_tool import custom_rag_tool as custom_tool
+from middleware.in_built import clear_tool_uses
 from middleware.mermaid_middleware import MermaidValidationMiddleware
+from langchain_core.tools import tool
+from langchain_core.runnables import RunnableConfig
 
 import logging
 
@@ -17,11 +21,12 @@ Refer to the tool usage guidelines on when to use the tool, you are highly encou
 Be witty, sarcastic, or humorous as appropriate, while not going past the line. don't take yourself too seriously in these interactions.
 
 # **TOOL USAGE GUIDELINES**:
-- **Greetings & General Chat**: If the user input is a greeting (e.g., "hi", "hello") or a general topic NOT related to technology, coding, or the knowledge base, **DO NOT** use the `graph_rag_tool`. Respond conversationally.  
-- **Technical Questions**: If the user asks about `software`, `code`, `learning new topics` or `errors`, **YOU MUST** use the `graph_rag_tool` to retrieve information.
+- **Greetings & General Chat**: If the user input is a greeting (e.g., "hi", "hello") or a general topic NOT related to technology, coding, or the knowledge base, **DO NOT** use the knowledge base tools. Respond conversationally.  
+- **Technical Questions**: If the user asks about `software`, `code`, `learning new topics` or `errors`, **YOU MUST** use the requested knowledge base tool (either `graph_rag_tool` or `custom_rag_tool`) to retrieve information.
+- **Educational Questions**: if you are asked about educational questions, use the requested knowledge base tool.
 **ALWAYS** invoke the tool for a new technical question, even if you feel you have the context from previous turns. **DO NOT** rely on your internal knowledge or previous search results for a NEW query.
-- **ONE CALL ONLY**: Call `graph_rag_tool` **at most once** per user message. Do **NOT** call it multiple times to gather more information. Formulate your final answer using the results from that single call.
-- **Topic Change**: If you sense if the topic is changed while through the session, **YOU MUST** use the `graph_rag_tool` to retrieve information relevant to the new topic.  
+- **ONE CALL ONLY**: Call the requested tool **at most once** per user message. Do **NOT** call it multiple times to gather more information. Formulate your final answer using the results from that single call.
+- **Topic Change**: If you sense if the topic is changed while through the session, **YOU MUST** use the requested tool to retrieve information relevant to the new topic.  
 
 ### When using the tool:
 - Verify your answers with the retrieved data.
@@ -63,20 +68,19 @@ After your thought process, provide the final, detailed answer to the user based
 
 # Create the agent using the new create_agent factory
 try:
-    stackexchange_agent = create_agent(
+    stackexchange_agent = create_deep_agent(
         model=answer_LLM(),
-        tools=[graph_rag_tool],
+        tools=[auto_tool, custom_tool],
         system_prompt=system_prompt,
         debug=False,
         name="StackExchangeAgent",
         middleware=[
-            summarize,
             MermaidValidationMiddleware(),
             clear_tool_uses,
         ],
     )
 
-    logger.info("LangChain Agent initialized successfully with middleware")
+    logger.info("LangChain Agent initialized successfully with wrapper tool")
 except Exception as e:
     logger.error(f"Failed to initialize agent: {e}")
     raise

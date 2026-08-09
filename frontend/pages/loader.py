@@ -204,6 +204,7 @@ def render_page():
                     "total_questions": total_imported_count,
                     "tags_list": tags_to_import,
                     "total_pages": num_pages,
+                    "site": site,
                 }
                 rec_resp = requests.post(
                     f"{BACKEND_URL}/ingest/record", json=payload

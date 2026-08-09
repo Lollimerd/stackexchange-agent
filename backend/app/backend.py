@@ -16,7 +16,7 @@ from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from starlette.middleware import Middleware
-from langchain_core.messages import HumanMessage, AIMessage
+from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 
 from setup.init_config import (
     answer_LLM,
@@ -108,6 +108,7 @@ class QueryRequest(BaseModel):
     question: str
     session_id: str
     user_id: str = "test_user"  # fallback
+    mode: str = "auto"  # 'auto' or 'custom'
 
 
 class IngestRequest(BaseModel):
@@ -118,6 +119,7 @@ class ImportRecordRequest(BaseModel):
     total_questions: int
     tags_list: List[str]
     total_pages: int
+    site: str = "stackoverflow"
 
 
 @system_router.get("/")
@@ -380,7 +382,8 @@ async def record_import_session(request: ImportRecordRequest):
             total_questions: $total_questions,
             total_tags: $total_tags,
             total_pages: $total_pages,
-            tags_list: $tags_list
+            tags_list: $tags_list,
+            site: $site
         })
         """
 
@@ -391,6 +394,7 @@ async def record_import_session(request: ImportRecordRequest):
             "total_tags": len(request.tags_list),
             "total_pages": request.total_pages,
             "tags_list": request.tags_list,
+            "site": request.site,
         }
 
         # Run query in thread
@@ -411,7 +415,8 @@ async def update_import_session(import_id: str, request: ImportRecordRequest):
         SET log.total_questions = $total_questions,
             log.total_tags = $total_tags,
             log.total_pages = $total_pages,
-            log.tags_list = $tags_list
+            log.tags_list = $tags_list,
+            log.site = $site
         RETURN log
         """
 
@@ -421,6 +426,7 @@ async def update_import_session(import_id: str, request: ImportRecordRequest):
             "total_tags": len(request.tags_list),
             "total_pages": request.total_pages,
             "tags_list": request.tags_list,
+            "site": request.site,
         }
 
         # Run query in thread
@@ -468,6 +474,11 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
         response_chunks = []
         response_thought_chunks = []
 
+        # Track the run_id of graph_rag_tool so we can suppress LLM stream
+        # events that fire *inside* the tool (Cypher gen + QA steps).
+        # Only the final agent LLM response should be streamed to the frontend.
+        tool_run_id: str | None = None
+
         try:
             # 1. Prepare Input
             # Retrieve history
@@ -484,12 +495,17 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
 
             # Construct input for Graph Agent (expects 'messages' key in state)
             # Add current user message to the history list
-            input_messages = messages + [HumanMessage(content=request.question)]
+            target_tool = "graph_rag_tool" if request.mode == "auto" else "custom_rag_tool"
+            system_instruction = SystemMessage(
+                content=f"IMPORTANT: The user has selected the '{request.mode}' mode for retrieval. If you need to search the knowledge base for this query, you MUST use the `{target_tool}` tool. DO NOT use the other retrieval tool."
+            )
+            input_messages = messages + [system_instruction, HumanMessage(content=request.question)]
             input_data = {
                 "messages": input_messages,
                 "question": request.question,
                 "session_id": request.session_id,
                 "session_topic": "",  # Middleware will populate or use default
+                "mode": request.mode,
             }
 
             # Save user message to DB
@@ -513,13 +529,16 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
             # checking installed version or trying v2 is safer for new setups
 
             async for event in stackexchange_agent.astream_events(
-                input_data, version="v2"
+                input_data, version="v2", config={"configurable": {"mode": request.mode}}
             ):
                 event_type = event["event"]
                 event_name = event["name"]
 
                 # --- A. Status Updates (Tools) ---
                 if event_type == "on_tool_start":
+                    if event_name in ["graph_rag_tool", "custom_rag_tool"]:
+                        # Record the run_id so we can filter events fired inside the tool
+                        tool_run_id = event.get("run_id")
                     # Notify frontend that a tool is running
                     yield f"data: {
                         json.dumps(
@@ -533,6 +552,8 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
                     }\n\n"
 
                 elif event_type == "on_tool_end":
+                    if event_name in ["graph_rag_tool", "custom_rag_tool"]:
+                        tool_run_id = None  # Reset: tool finished, resume normal streaming
                     yield f"data: {
                         json.dumps(
                             {
@@ -602,9 +623,15 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
                         }\n\n"
 
                 # --- C. Token Streaming (LLM) ---
-                # We only want tokens from the final chat model in the agent, not internal steps if possible.
-                # Usually, 'on_chat_model_stream' works for the final response generation.
+                # Suppress tokens that originate from inside graph_rag_tool
+                # (Cypher generation or internal QA step). Only stream the
+                # final agent response.
                 elif event_type == "on_chat_model_stream":
+                    # Check if this event is a child of the active tool invocation
+                    parent_ids = event.get("parent_ids", [])
+                    if tool_run_id and tool_run_id in parent_ids:
+                        continue  # Drop — this token is from inside the tool
+
                     chunk = event["data"].get("chunk")
                     if chunk:
                         content = (

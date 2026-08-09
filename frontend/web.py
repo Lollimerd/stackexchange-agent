@@ -142,6 +142,16 @@ with st.sidebar:
             st.session_state.active_chat_id = None
             st.rerun()
 
+    st.sidebar.markdown("---")
+    retrieval_mode = st.sidebar.radio(
+        "Retrieval Mode",
+        options=["auto", "custom"],
+        index=0,
+        help="Select 'auto' for Cypher generation or 'custom' for Vector/Full-text ensemble search.",
+        horizontal=True
+    )
+    st.sidebar.markdown("---")
+
     # Logic to load chats if empty (initial load or name change)
     if not st.session_state.chats and st.session_state.get("user_name"):
         backend_chats = fetch_user_chats(st.session_state.user_name)
@@ -378,6 +388,7 @@ else:
                                 "question": prompt,
                                 "session_id": session_id,
                                 "user_id": user_id,
+                                "mode": retrieval_mode,
                             }
                             timeout = httpx.Timeout(60, read=60)
                             with httpx.Client(timeout=timeout) as client:

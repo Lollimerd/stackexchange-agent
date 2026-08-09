@@ -142,10 +142,11 @@ def render_page():
             # Display as interactive editor
             edited_df = st.data_editor(
                 df[
-                    ["id", "formatted_time", "questions", "tags", "pages", "tags_list"]
+                    ["id", "formatted_time", "site", "questions", "tags", "pages", "tags_list"]
                 ].rename(
                     columns={
                         "formatted_time": "Date",
+                        "site": "Site",
                         "questions": "Questions",
                         "tags": "Tags",
                         "pages": "Pages",
@@ -161,6 +162,11 @@ def render_page():
                         "Date",
                         disabled=True,
                     ),
+                    "Site": st.column_config.TextColumn(
+                        "Site",
+                        help="StackExchange site imported from",
+                        disabled=True,
+                    ),
                     "Tag List": st.column_config.ListColumn(
                         "Tag List",
                         help="List of tags imported",
@@ -168,8 +174,9 @@ def render_page():
                 },
                 disabled=[
                     "Date",
+                    "Site",
                     "Tags",
-                ],  # Disable editing of date and calculated tags count
+                ],  # Disable editing of date, site and calculated tags count
                 num_rows="dynamic",  # Allow adding/deleting rows (we only handle deletion)
             )
 
@@ -209,6 +216,7 @@ def render_page():
                         "total_pages": update_data.get(
                             "total_pages", current_row.get("pages")
                         ),
+                        "site": current_row.get("site", "stackoverflow"),
                     }
 
                     if update_import_log_api(row_id, full_payload):

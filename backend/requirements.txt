@@ -9,6 +9,7 @@ langchain-core
 langchain-community
 langchain-neo4j
 langchain-ollama
+deepagents
 
 # Database & Graph
 neo4j
