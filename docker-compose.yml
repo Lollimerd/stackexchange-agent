@@ -10,7 +10,8 @@ services:
     gpus: all
     environment:
       - OLLAMA_FLASH_ATTENTION=1
-      - OLLAMA_KV_CACHE_TYPE=q8_0
+      - OLLAMA_KV_CACHE_TYPE=q4_0
+      - OLLAMA_NUM_CTX=32768
     volumes:
       - ollama_data:/root/.ollama
     restart: always
@@ -68,11 +69,11 @@ services:
 
   backend-server:
     build:
-      context: ./backend
+      context: . # project root — gives access to pyproject.toml + uv.lock
+      dockerfile: backend/Dockerfile
     container_name: fastapi-backend
     ports:
       - 8000:8000
-    gpus: all
     environment:
       - NEO4J_URL=bolt://graphDB:7687
       - NEO4J_USERNAME=${NEO4J_USERNAME}
@@ -81,11 +82,26 @@ services:
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
       - HF_HUB_OFFLINE=1
       - HF_HOME=/home/appuser/.cache/huggingface
+      # Point ONNX Runtime TensorRT engine cache to the persisted volume
+      - ORT_TENSORRT_CACHE_PATH=/tmp/trt_cache
     restart: always
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ~/.cache/huggingface:/home/appuser/.cache/huggingface:ro
+      # rw so ONNX models can be cached on first pull
+      - ~/.cache/huggingface:/home/appuser/.cache/huggingface:rw
+      # Persist TensorRT compiled engines — skips recompilation on restart
+      - tensorrt_cache:/tmp/trt_cache
+    deploy:
+      resources:
+        limits:
+          memory: 4G # cap container RAM
+          cpus: '4' # cap CPU cores
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu, compute, utility ]
     networks:
       - app-network
     depends_on:
@@ -122,3 +138,4 @@ networks:
 volumes:
   neo4j_stackoverflow_data:
   ollama_data:
+  tensorrt_cache: # Persists TensorRT compiled engines across restarts
