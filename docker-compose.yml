@@ -49,7 +49,7 @@ services:
       # Adjust these values based on your host's available RAM and graph size.
       # GDS often requires more memory for graph projections.
       - NEO4J_server_memory_heap_initial__size=1G # Minimum initial heap size
-      - NEO4J_server_memory_heap_max__size=4G   # Maximum heap size
+      - NEO4J_server_memory_heap_max__size=4G # Maximum heap size
       - NEO4J_server_memory_pagecache_size=2G # For large graphs, dedicate memory to page cache
       # --- Enable Java Vector API (SIMD) ---
       - NEO4J_server_jvm_additional=--add-modules=jdk.incubator.vector
@@ -97,7 +97,7 @@ services:
 
   backend-server:
     build:
-      context: ./backend 
+      context: ./backend
     container_name: fastapi-backend
     ports:
       - 8000:8000
@@ -107,7 +107,7 @@ services:
       - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - OLLAMA_BASE_URL=http://ollama:11434
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
-    restart: always
+    restart: unless-stopped
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -118,10 +118,10 @@ services:
         condition: service_started
       ollama:
         condition: service_started
-  
+
   frontend:
     build:
-      context: ./frontend 
+      context: ./frontend
     container_name: streamlit-frontend
     ports:
       - 8501:8501
