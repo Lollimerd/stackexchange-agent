@@ -3,7 +3,7 @@ import asyncio
 import json
 import logging
 import os
-import time
+
 from datetime import datetime
 from typing import AsyncGenerator, Dict, List
 from urllib.parse import urlparse
@@ -212,60 +212,49 @@ def delete_app_user(user_id: str):
 # Ingestion Endpoints
 # ===========================================================================================================================================================
 
-import_query = """
-    UNWIND $data AS q
-    MERGE (question:Question {id:q.question_id}) 
-    ON CREATE SET question.title = q.title, question.link = q.link, question.score = q.score,
-        question.favorite_count = q.favorite_count, question.creation_date = datetime({epochSeconds: q.creation_date}),
-        question.body = q.body_markdown, question.embedding = q.embedding
-    FOREACH (tagName IN q.tags | 
-        MERGE (tag:Tag {name:tagName}) 
-        MERGE (question)-[:TAGGED]->(tag)
-    )
-    FOREACH (a IN q.answers |
-        MERGE (question)<-[:ANSWERS]-(answer:Answer {id:a.answer_id})
-        SET answer.is_accepted = a.is_accepted,
-            answer.score = a.score,
-            answer.creation_date = datetime({epochSeconds:a.creation_date}),
-            answer.body = a.body_markdown,
-            answer.embedding = a.embedding
-        MERGE (answerer:User {id:coalesce(a.owner.user_id, "deleted")}) 
-        ON CREATE SET answerer.display_name = a.owner.display_name,
-                      answerer.reputation= a.owner.reputation
-        MERGE (answer)<-[:PROVIDED]-(answerer)
-    )
-    WITH * WHERE NOT q.owner.user_id IS NULL
-    MERGE (owner:User {id:q.owner.user_id})
-    ON CREATE SET owner.display_name = q.owner.display_name,
-                  owner.reputation = q.owner.reputation
-    MERGE (owner)-[:ASKED]->(question)
-    """
-
 
 @app.post("/api/v1/ingest")
 async def ingest_stackoverflow_data(request: IngestRequest):
     """Ingest StackOverflow data: compute embeddings and insert into Neo4j."""
     try:
+        from tools.custom_tool import import_query
+
         data_items = request.data
         if not data_items:
             return {"status": "skipped", "message": "No data items to ingest."}
 
         # Use a separate thread for the heavy lifting (embeddings + DB)
         def process_ingestion(items):
-            # 1. Compute embeddings
-            for q in items:
-                # Combine title and body for the question embedding
-                question_text = q.get("title", "") + "\n" + q.get("body_markdown", "")
-                q["embedding"] = EMBEDDINGS.embed_query(question_text)
-                # Sleep a tiny bit to be nice to Ollama if needed, though requests are sequential here
-                time.sleep(0.1)
+            # 1. Prepare texts for batch embedding
+            texts_to_embed = []
+            map_to_object = []  # List of tuples/dicts to map back: (type, parent_idx, answer_idx)
 
-                for a in q.get("answers", []):
-                    answer_text = question_text + "\n" + a.get("body_markdown", "")
-                    a["embedding"] = EMBEDDINGS.embed_query(answer_text)
-                    # time.sleep(0.1)
+            for q_idx, q in enumerate(items):
+                # Question text
+                q_text = q.get("title", "") + "\n" + q.get("body_markdown", "")
+                texts_to_embed.append(q_text)
+                map_to_object.append(("question", q_idx, -1))
 
-            # 2. Insert into Neo4j
+                # Answer texts
+                # Note: Original code used question_text + answer body for answer embedding
+                for a_idx, a in enumerate(q.get("answers", [])):
+                    a_text = q_text + "\n" + a.get("body_markdown", "")
+                    texts_to_embed.append(a_text)
+                    map_to_object.append(("answer", q_idx, a_idx))
+
+            # 2. Compute embeddings in batch
+            if texts_to_embed:
+                embeddings = EMBEDDINGS.embed_documents(texts_to_embed)
+
+                # 3. Assign embeddings back
+                for i, embedding in enumerate(embeddings):
+                    obj_type, q_idx, a_idx = map_to_object[i]
+                    if obj_type == "question":
+                        items[q_idx]["embedding"] = embedding
+                    elif obj_type == "answer":
+                        items[q_idx]["answers"][a_idx]["embedding"] = embedding
+
+            # 4. Insert into Neo4j
             graph.query(import_query, {"data": items})
             return len(items)
 
@@ -360,10 +349,6 @@ async def delete_import_session(import_id: str):
     except Exception as e:
         logger.error(f"Error deleting import session: {e}")
         return {"status": "error", "message": str(e)}
-
-
-# --- ✨ REFACTORED: Streaming Endpoint with Thinking Handler ---
-# FIX: Use asyncio.to_thread to prevent Neo4j blocking from blocking event loop
 
 
 @app.post("/stream-ask")
@@ -491,14 +476,43 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
                     if event_name == "GraphTraversal":
                         output = event["data"].get("output", [])
                         count = len(output) if isinstance(output, list) else 0
-                        yield f"data: {json.dumps({'type': 'status', 'stage': 'graph_traversal', 'status': 'complete', 'message': f'✅ Found {count} documents', 'count': count})}\n\n"
+                        yield f"data: {
+                            json.dumps(
+                                {
+                                    'type': 'status',
+                                    'stage': 'graph_traversal',
+                                    'status': 'complete',
+                                    'message': f'✅ Found {count} documents',
+                                    'count': count,
+                                }
+                            )
+                        }\n\n"
                     elif event_name == "Reranking":
                         output = event["data"].get("output", [])
                         count = len(output) if isinstance(output, list) else 0
-                        yield f"data: {json.dumps({'type': 'status', 'stage': 'reranking', 'status': 'complete', 'message': f'✅ Top {count} documents selected', 'count': count})}\n\n"
+                        yield f"data: {
+                            json.dumps(
+                                {
+                                    'type': 'status',
+                                    'stage': 'reranking',
+                                    'status': 'complete',
+                                    'message': f'✅ Top {count} documents selected',
+                                    'count': count,
+                                }
+                            )
+                        }\n\n"
 
                 elif event_type == "on_chat_model_start":
-                    yield f"data: {json.dumps({'type': 'status', 'stage': 'thinking', 'status': 'running', 'message': '🤔 Thinking...'})}\n\n"
+                    yield f"data: {
+                        json.dumps(
+                            {
+                                'type': 'status',
+                                'stage': 'thinking',
+                                'status': 'running',
+                                'message': '🤔 Thinking...',
+                            }
+                        )
+                    }\n\n"
 
                 # --- Token Streaming ---
                 elif event_type == "on_chat_model_stream":
