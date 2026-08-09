@@ -128,7 +128,7 @@ def display_container_name():
         st.sidebar.error("**DB Status:** Connection failed.")
 
 # --- Config Func ---
-@st.cache_data(ttl=3600) # Cache the data for 1 hour
+# @st.cache_data(ttl=3600) # Cache the data for 1 hour
 def get_system_config():
     """Fetches configuration from the backend API."""
     try:
