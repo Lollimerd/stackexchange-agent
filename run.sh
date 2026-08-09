@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # init venv
+echo"venv activated"
 source .venv/bin/activate
 
 # Script to run FastAPI backend and Streamlit frontend simultaneously
