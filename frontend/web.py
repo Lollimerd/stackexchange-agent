@@ -35,8 +35,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
     menu_items={
-        "Get Help": "https://www.extremelycoolapp.com/help",
-        "Report a bug": "https://www.extremelycoolapp.com/bug",
+        "Get Help": "https://www.google.com",
+        "Report a bug": "https://www.google.com",
         "About": "# This is a header. This is an *extremely* cool app!",
     },
 )
@@ -194,7 +194,9 @@ with st.sidebar:
             st.rerun()
 
     with col_refresh:
-        if st.button("🔄", help="Refresh Chat List"):
+        if st.button(
+            "🔄", key="sidebar_refresh", help="Refresh Chats & Re-render Diagrams"
+        ):
             # Clear local state to force reload from backend
             st.session_state.chats = {}
             st.rerun()
@@ -252,6 +254,18 @@ with st.sidebar:
 
     st.write("OPSEC ©LOLLIMERD 2025")
 
+    # # --- Debug Mode ---
+    # with st.expander("🛠️ Debug Info"):
+    #     st.write("Active Chat ID:", st.session_state.active_chat_id)
+    #     if (
+    #         st.session_state.active_chat_id
+    #         and st.session_state.active_chat_id in st.session_state.chats
+    #     ):
+    #         chat = st.session_state.chats[st.session_state.active_chat_id]
+    #         st.write("Message Count:", len(chat.get("messages", [])))
+    #         st.write("Last 3 Messages (Raw):")
+    #         st.json(chat.get("messages", [])[-3:])
+
 active_chat = get_active_chat()
 
 # --- Main Content Area ---
@@ -290,7 +304,6 @@ else:
 
     st.subheader(body=f"Welcome back, {st.session_state.get('user_name', 'Guest')}")
 
-    # When displaying past messages from the ACTIVE chat:
     # When displaying past messages from the ACTIVE chat:
     for i, message in enumerate(active_chat["messages"]):
         role = message.get("role", "user")
@@ -367,7 +380,7 @@ else:
                                 "session_id": session_id,
                                 "user_id": user_id,
                             }
-                            timeout = httpx.Timeout(300, read=300)
+                            timeout = httpx.Timeout(60, read=60)
                             with httpx.Client(timeout=timeout) as client:
                                 with connect_sse(
                                     client,

@@ -47,9 +47,12 @@ def add_user_message_to_session(session_id: str, content: str):
         graph = get_graph_instance()
         # Match the session and the message marked as LAST_MESSAGE (which is the one just added)
         # Then create HAS_MESSAGE and set created_at
+        # MATCH (s:Session {id: $session_id})-[:LAST_MESSAGE]->(m:Message)
+        # SET m.created_at = $timestamp
+        # MERGE (s)-[:HAS_MESSAGE]->(m)
         query = """
         MATCH (s:Session {id: $session_id})-[:LAST_MESSAGE]->(m:Message)
-        SET m.created_at = $timestamp
+        SET m.created_at = $timestamp, m.type = 'user'
         MERGE (s)-[:HAS_MESSAGE]->(m)
         """
         graph.query(
@@ -76,7 +79,7 @@ def add_ai_message_to_session(session_id: str, content: str, thought: str):
         # Set the thought property, created_at, and create HAS_MESSAGE
         query = """
         MATCH (s:Session {id: $session_id})-[:LAST_MESSAGE]->(m:Message)
-        SET m.thought = $thought, m.created_at = $timestamp
+        SET m.thought = $thought, m.created_at = $timestamp, m.type = 'assistant'
         MERGE (s)-[:HAS_MESSAGE]->(m)
         """
         graph.query(
@@ -87,7 +90,10 @@ def add_ai_message_to_session(session_id: str, content: str, thought: str):
                 "timestamp": datetime.now().isoformat(),
             },
         )
-        logger.debug(f"AI message added to session {session_id}")
+        logger.debug(
+            f"AI message added to session {session_id} with thought (length {len(thought if thought else '')})"
+        )
+
     except Exception as e:
         logger.error(f"Error adding AI message to session {session_id}: {e}")
 

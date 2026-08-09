@@ -368,7 +368,12 @@ async def agent_ask(request: QueryRequest) -> StreamingResponse:
             # Construct input for Graph Agent (expects 'messages' key in state)
             # Add current user message to the history list
             input_messages = messages + [HumanMessage(content=request.question)]
-            input_data = {"messages": input_messages}
+            input_data = {
+                "messages": input_messages,
+                "question": request.question,
+                "session_id": request.session_id,
+                "session_topic": "",  # Middleware will populate or use default
+            }
 
             # Save user message to DB
             try:

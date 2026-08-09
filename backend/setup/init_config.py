@@ -22,9 +22,9 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 # qwen3:8b works for now with limited context of 40k, qwen3:30b works with 256k max
 def answer_LLM():
     return ChatOllama(
-        model="qwen3:1.7b",
+        model="qwen3:8b",
         base_url=OLLAMA_BASE_URL,
-        num_ctx=40968,  # 40k context
+        num_ctx=40960,  # 40k context
         num_predict=8192,  # max tokens in answer
         temperature=0.7,  # more creative
         repeat_penalty=1.5,  # higher, penalise repetitions
@@ -51,6 +51,15 @@ def reranker_model():
     return HuggingFaceCrossEncoder(
         model_name="BAAI/bge-reranker-base",
         model_kwargs={"device": "cuda"},  # Use 'cuda' for GPU acceleration
+    )
+
+
+# save llama3.1:8b for now
+def summarizer():
+    return ChatOllama(
+        model="qwen3:0.6b",
+        base_url=OLLAMA_BASE_URL,
+        num_ctx=40960,  # 40k context
     )
 
 

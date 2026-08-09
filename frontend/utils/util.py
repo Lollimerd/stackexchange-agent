@@ -1,4 +1,6 @@
+import html
 import streamlit as st
+import streamlit.components.v1 as components
 
 import json
 import logging
@@ -6,7 +8,6 @@ import os
 import re
 import uuid
 import requests
-from streamlit_mermaid import st_mermaid
 from typing import List
 from datetime import datetime
 
@@ -248,7 +249,34 @@ def render_message_with_mermaid(content, key_suffix=""):
 
             if mermaid_code:
                 try:
-                    st_mermaid(mermaid_code)
+                    # Generate a unique ID for this diagram
+                    unique_id = f"mermaid-{uuid.uuid4()}"
+
+                    # Escape the code to prevent HTML injection/breaking
+                    escaped_code = html.escape(mermaid_code)
+
+                    # st_mermaid(mermaid_code)
+                    mermaid_html = f"""
+                        <div class="mermaid" id="{unique_id}">
+                            {escaped_code}
+                        </div>
+                        <script type="module">
+                            import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+                            mermaid.initialize({{ startOnLoad: true }});
+                            try {{
+                                await mermaid.run({{
+                                    querySelector: '#{unique_id}'
+                                }});
+                            }} catch(e) {{
+                                console.error('Mermaid error:', e);
+                                const div = document.getElementById('{unique_id}');
+                                if (div) {{
+                                    div.innerHTML = '<pre style="color:red; background: #fee; padding: 10px; border-radius: 5px;">' + e.message + '</pre>';
+                                }}
+                            }}
+                        </script>
+                    """
+                    components.html(mermaid_html, height=600, scrolling=True)
                 except Exception as e:
                     st.error(f"Failed to render Mermaid diagram: {e}")
                     st.code(mermaid_code, language="mermaid")
@@ -455,10 +483,10 @@ def search_nodes(driver, search_term: str, limit: int = 10):
 
 def get_graph_sample(
     driver,
-    node_types: list = None,
-    rel_types: list = None,
+    node_types: List[str],
+    rel_types: List[str],
     limit: int = 50,
-    focus_node_id: str = None,
+    focus_node_id: str = "",
 ):
     """
     Fetch a sample of nodes and relationships for visualization.

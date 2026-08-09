@@ -8,6 +8,9 @@ services:
     ports:
       - "11434:11434"
     gpus: all
+    environment:
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_KV_CACHE_TYPE=q8_0
     volumes:
       - ollama_data:/root/.ollama
     restart: always

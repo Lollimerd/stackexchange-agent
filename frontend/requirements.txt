@@ -1,5 +1,4 @@
 streamlit
-streamlit_mermaid
 streamlit_timeline
 st_pages
 httpx
