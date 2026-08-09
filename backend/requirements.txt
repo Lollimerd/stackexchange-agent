@@ -16,9 +16,7 @@ ollama
 
 # AI/ML & Embeddings
 sentence-transformers
-torch  # Explicitly stating torch is good for reproducibility with Rerankers
-optimum[onnxruntime-gpu] # optimized ONNX inference with GPU
-tensorrt-cu12 # TensorRT for CUDA 12.x (matches Docker base image)
+torch
 
 # Utilities
 python-dotenv
