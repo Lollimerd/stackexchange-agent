@@ -178,7 +178,7 @@ def retrieve_raw_docs(question: str) -> List[Document]:
         common_search_kwargs = {
             "k": 20,  # Increased initial pool: wider net across all entity types
             "score_threshold": 0.9,  # Slightly lowered to ensure we catch cross-domain links
-            "fetch_k": 100,  # Number of candidates for the initial vector search
+            "fetch_k": 200,  # Number of candidates for the initial vector search
             "lambda_mult": 0.5,  # Balanced weight between Vector and Full-text
             "params": {
                 "embedding": EMBEDDINGS.embed_query(question),
