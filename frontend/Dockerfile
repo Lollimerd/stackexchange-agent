@@ -40,17 +40,17 @@ COPY --from=builder /opt/venv /opt/venv
 RUN mkdir -p /home/appuser/.cache /home/appuser/.streamlit && \
     chown -R appuser:appuser /home/appuser
 
-# Copy application source code (from the frontend/ context)
-COPY . .
-
-# Ensure appuser owns the application files
-RUN chown -R appuser:appuser /app
+# Copy application source code
+COPY --chown=appuser:appuser . .
 
 # Switch to the non-privileged user
 USER appuser
 
 # Expose Streamlit's default port
-EXPOSE 8501
+EXPOSE 8510
+
+# Set working directory to the frontend directory
+WORKDIR /app/frontend
 
 # Run Streamlit
 CMD ["streamlit", "run", "web.py", "--server.address=0.0.0.0"]

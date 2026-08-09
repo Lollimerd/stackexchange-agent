@@ -13,7 +13,7 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 # Install dependencies into a virtualenv using a cache mount for speed
 RUN --mount=type=cache,target=/root/.cache/uv \
-    --mount=type=bind,source=backend/requirements.txt,target=requirements.txt \
+    --mount=type=bind,source=requirements.txt,target=requirements.txt \
     uv init --no-workspace && \
     uv add -r requirements.txt
 

@@ -1,7 +1,14 @@
-# Web Framework
+# Web Framework & API
 fastapi
 uvicorn[standard] # includes uvloop + httptools for better async performance
 pydantic
+
+# Frontend & UI
+streamlit
+streamlit_timeline
+st_pages
+plotly
+pyvis
 
 # LangChain Ecosystem
 langchain>=1.0
@@ -19,7 +26,10 @@ ollama
 sentence-transformers
 torch
 
-# Utilities
+# Data & Utilities
 python-dotenv
 docker
 httpx
+httpx-sse
+requests
+pandas

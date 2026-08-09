@@ -131,7 +131,8 @@ services:
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
     container_name: streamlit-frontend
     pull_policy: missing
     ports:
