@@ -206,14 +206,14 @@ def get_all_users():
 def delete_session(session_id: str):
     """
     Deletes a session and its messages from the database.
-    Uses a broad match to ensure all connected messages (linked list or star) are removed.
+    Uses a broad traversal to ensure all connected messages are removed regardless
+    of which relationship type links them (HAS_MESSAGE, LAST_MESSAGE, NEXT, etc.).
     """
     try:
-        # FIX: Use pooled connection and optimize query
         graph = get_graph_instance()
         query = """
         MATCH (s:Session {id: $session_id})
-        OPTIONAL MATCH (s)-[:HAS_MESSAGE]->(m:Message)
+        OPTIONAL MATCH (s)-[*1..50]-(m:Message)
         DETACH DELETE m, s
         """
         graph.query(query, params={"session_id": session_id})
@@ -225,14 +225,15 @@ def delete_session(session_id: str):
 def delete_user(user_id: str):
     """
     Deletes a user and all their sessions/messages.
+    Uses a broad traversal from each session to catch all linked Message nodes
+    regardless of relationship type (HAS_MESSAGE, LAST_MESSAGE, NEXT, etc.).
     """
     try:
-        # FIX: Use pooled connection and optimize query
         graph = get_graph_instance()
         query = """
         MATCH (u:AppUser {id: $user_id})
         OPTIONAL MATCH (u)-[:HAS_SESSION]->(s:Session)
-        OPTIONAL MATCH (s)-[:HAS_MESSAGE]->(m:Message)
+        OPTIONAL MATCH (s)-[*1..50]-(m:Message)
         DETACH DELETE m, s, u
         """
         graph.query(query, params={"user_id": user_id})
