@@ -38,9 +38,6 @@ neo4j_graph = Neo4jGraph(
     password=password, 
 )
 
-create_constraints(neo4j_graph)
-create_vector_index(neo4j_graph)
-
 def load_so_data(tag: str, page: int) -> dict:
     """
     Load Stack Overflow data and handle potential errors gracefully.
@@ -152,14 +149,14 @@ def render_page():
                 for future in as_completed(futures):
                     time.sleep(0.5)
                     completed_tasks += 1
-                    result = future.result() # This will not raise an error now
+                    result = future.result()
                     
                     progress = (completed_tasks / tasks_to_complete) * 100
                     
                     with info_placeholder:
                         if result["status"] == "success":
                             total_imported_count += result["count"]
-                            st.info(f"({progress:.2f}%) ✅ Success: Imported page {result['page']} for tag '{result['tag']}' ({result['count']} items).")
+                            st.info(f"({progress:.2f}%) ✅ Success: Imported page {result['page']} for tag '{result['tag']}' ({result['count']} items per page).")
                         elif result["status"] == "empty":
                             st.info(f"({progress:.2f}%) 🟡 Skipped: No items on page {result['page']} for tag '{result['tag']}'.")
                     with error_placeholder:
