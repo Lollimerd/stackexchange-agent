@@ -9,4 +9,5 @@ plotly
 pandas
 python-dotenv
 pyvis
-langchain_neo4j
+langchain-neo4j
+langchain-ollama
