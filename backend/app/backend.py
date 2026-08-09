@@ -21,12 +21,7 @@ from utils.memory import (
     add_user_message_to_session,
     add_ai_message_to_session,
 )
-from utils.topic_continuity import (
-    get_session_topic,
-    calculate_topic_similarity,
-    update_session_topic_if_changed,
-    get_relevant_context_for_continuation,
-)
+from utils.topic_manager import TopicManager
 
 # Load environment variables
 load_dotenv()
@@ -222,12 +217,12 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
             stored_messages = chat_history_obj.messages if chat_history_obj else []
 
             session_topic = await asyncio.to_thread(
-                get_session_topic, request.session_id
+                TopicManager.get_session_topic, request.session_id
             )
 
             # Analyze topic continuity
             similarity_data = await asyncio.to_thread(
-                calculate_topic_similarity, request.question, session_topic
+                TopicManager.calculate_topic_similarity, request.question, session_topic
             )
 
             logger.info(f"Topic continuity: {similarity_data['recommendation']}")
@@ -235,7 +230,7 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
             # Update topic if significant shift detected
             if not is_first_message:
                 await asyncio.to_thread(
-                    update_session_topic_if_changed,
+                    TopicManager.update_session_topic_if_changed,
                     request.session_id,
                     request.question,
                     similarity_data,
