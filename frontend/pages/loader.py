@@ -19,25 +19,6 @@ logger = get_logger(__name__)
 
 so_api_base_url = "https://api.stackexchange.com/2.3/search/advanced"
 
-embeddings = OllamaEmbeddings(
-    model="jina/jina-embeddings-v2-base-en:latest", 
-    base_url=ollama_base_url, 
-    num_ctx=8192, # 8k context
-)
-
-embedding_sub = OllamaEmbeddings(
-    model="embeddinggemma:300m", 
-    base_url=ollama_base_url, 
-    num_ctx=2048, # 2k context
-)
-
-# if Neo4j is local, you can go to http://localhost:7474/ to browse the database
-neo4j_graph = Neo4jGraph(
-    url=url, 
-    username=username, 
-    password=password, 
-)
-
 def load_so_data(tag: str, page: int, site: str) -> dict:
     """
     Load Stack Overflow data and handle potential errors gracefully.
@@ -106,7 +87,7 @@ def insert_so_data(data: dict) -> None:
 def get_tags() -> list[str]:
     """Gets a comma-separated string of tags and returns a clean list."""
     input_text = st.text_input(
-        "Enter tags separated by commas", value="neo4j, cypher, python"
+        "Enter tags separated by commas", value="python"
     )
     return [tag.strip() for tag in input_text.split(",") if tag.strip()]
 
@@ -130,8 +111,8 @@ def get_pages():
 
 # --- Main Page Rendering (Modified Logic) ---
 def render_page():
-    st.header("StackOverflow Loader")
-    st.subheader("Choose StackOverflow tags to load into Neo4j")
+    st.header("StackExchange Loader")
+    st.subheader("Choose StackExchange tags to load into Neo4j")
     st.caption("Go to http://localhost:7473/ to explore the graph.")
 
     site = get_site()

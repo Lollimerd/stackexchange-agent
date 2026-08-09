@@ -6,6 +6,5 @@ __pycache__/
 *.pyc
 *.env
 __init__.py
-*.txt
 .venv/
 *.bak
