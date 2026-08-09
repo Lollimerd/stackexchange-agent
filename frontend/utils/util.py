@@ -7,13 +7,13 @@ from datetime import datetime
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 # --- API Configuration ---
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 FASTAPI_URL = f"{BACKEND_URL}/stream-ask"
 CHATS_URL = f"{BACKEND_URL}/api/v1/user"  # /{user_id}/chats
 CHAT_HISTORY_URL = f"{BACKEND_URL}/api/v1/chat"
 USERS_URL = f"{BACKEND_URL}/api/v1/users"
+
 
 # --- API Helper Functions with Error Handling ---
 def fetch_all_users(retry_count=2):
@@ -39,6 +39,7 @@ def fetch_all_users(retry_count=2):
             return []
     return []
 
+
 def delete_chat_api(session_id):
     """Delete a chat session."""
     try:
@@ -48,6 +49,7 @@ def delete_chat_api(session_id):
         logger.error(f"Error deleting chat {session_id}: {e}")
         st.warning(f"Could not delete chat: {str(e)[:50]}")
 
+
 def delete_user_api(user_id):
     """Delete a user and all their data."""
     try:
@@ -56,6 +58,7 @@ def delete_user_api(user_id):
     except requests.exceptions.RequestException as e:
         logger.error(f"Error deleting user {user_id}: {e}")
         st.warning(f"Could not delete user: {str(e)[:50]}")
+
 
 def fetch_user_chats(user_id, retry_count=2):
     """Fetch user's chat sessions with retry logic."""
@@ -78,6 +81,7 @@ def fetch_user_chats(user_id, retry_count=2):
                 continue
             return []
     return []
+
 
 def fetch_chat_history(session_id, retry_count=2):
     """Fetch chat history with retry logic."""
@@ -107,6 +111,7 @@ def fetch_chat_history(session_id, retry_count=2):
             return []
     return []
 
+
 def extract_title_and_question(input_string):
     lines = input_string.strip().split("\n")
     title = ""
@@ -128,6 +133,7 @@ def extract_title_and_question(input_string):
 
     return title, question
 
+
 def create_vector_index(driver) -> None:
     index_query = "CREATE VECTOR INDEX stackoverflow IF NOT EXISTS FOR (m:Question) ON m.embedding"
     try:
@@ -141,6 +147,7 @@ def create_vector_index(driver) -> None:
         driver.query(index_query)
     except:  # Already exists
         pass
+
 
 def create_constraints(driver):
     driver.query(
@@ -159,14 +166,17 @@ def create_constraints(driver):
         "CREATE CONSTRAINT importlog_id IF NOT EXISTS FOR (i:ImportLog) REQUIRE (i.id) IS UNIQUE"
     )
 
+
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
+
 
 # This is a placeholder for LangChain's Document class
 class Document:
     def __init__(self, page_content: str, metadata: dict):
         self.page_content = page_content
         self.metadata = metadata
+
 
 def format_docs_with_metadata(docs: List[Document]) -> str:
     """
@@ -180,15 +190,14 @@ def format_docs_with_metadata(docs: List[Document]) -> str:
         metadata_str = json.dumps(doc.metadata, indent=2)
 
         # Create a combined block for the document's content and its metadata
-        block = (
-            f"Content: \n{doc.page_content}\n"
-            f"--- METADATA ---\n"
-            f"{metadata_str}"
-        )
+        block = f"Content: \n{doc.page_content}\n--- METADATA ---\n{metadata_str}"
         formatted_blocks.append(block)
 
     # Join all the individual document blocks with a clear separator
-    return "\n\n======================================================\n\n".join(formatted_blocks)
+    return "\n\n======================================================\n\n".join(
+        formatted_blocks
+    )
+
 
 # --- Mermaid Rendering Function ---
 def render_message_with_mermaid(content):
@@ -201,7 +210,9 @@ def render_message_with_mermaid(content):
         # This is a mermaid block
         if part.strip().startswith("```mermaid"):
             # Extract the code by removing the fences
-            mermaid_code = part.strip().replace("```mermaid", "").replace("```", "").strip()
+            mermaid_code = (
+                part.strip().replace("```mermaid", "").replace("```", "").strip()
+            )
             if mermaid_code:
                 # Generate a unique key based on the mermaid code content only
                 # This ensures the same diagram always gets the same key
@@ -210,14 +221,18 @@ def render_message_with_mermaid(content):
                     st_mermaid(mermaid_code, key=key)
                 except Exception as e:
                     st.error(f"Failed to render Mermaid diagram: {e}")
-                    st.code(mermaid_code, language="mermaid") # Show the raw code on failure
+                    st.code(
+                        mermaid_code, language="mermaid"
+                    )  # Show the raw code on failure
         else:
             # This is a regular markdown block
             if part.strip():
                 st.markdown(part)
 
+
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-CONFIG_URL = f"{BACKEND_URL}/api/v1/config" # New API endpoint
+CONFIG_URL = f"{BACKEND_URL}/api/v1/config"  # New API endpoint
+
 
 # --- 🆕 Function to fetch and display container name ---
 def display_container_name():
@@ -233,17 +248,19 @@ def display_container_name():
     except requests.exceptions.RequestException:
         st.sidebar.error("**DB Status:** Connection failed.")
 
+
 # --- Config Func ---
 def get_system_config():
     """Fetches configuration from the backend API."""
     try:
         response = requests.get(CONFIG_URL)
-        response.raise_for_status() # Raise an exception for bad status codes
+        response.raise_for_status()  # Raise an exception for bad status codes
         return response.json()
     except requests.exceptions.RequestException as e:
         print(f"Could not fetch config: {e}")
-        return None # Return None on failure
-    
+        return None  # Return None on failure
+
+
 import_query = """
     UNWIND $data AS q
     MERGE (question:Question {id:q.question_id}) 
@@ -273,11 +290,14 @@ import_query = """
     MERGE (owner)-[:ASKED]->(question)
     """
 
-def record_import_session(driver, total_questions: int, tags_list: list, total_pages: int):
+
+def record_import_session(
+    driver, total_questions: int, tags_list: list, total_pages: int
+):
     """Record an import session in Neo4j as an ImportLog node."""
     import_id = str(uuid.uuid4())
     timestamp = datetime.now().isoformat()
-    
+
     query = """
     CREATE (log:ImportLog {
         id: $import_id,
@@ -288,17 +308,21 @@ def record_import_session(driver, total_questions: int, tags_list: list, total_p
         tags_list: $tags_list
     })
     """
-    
-    driver.query(query, {
-        "import_id": import_id,
-        "timestamp": timestamp,
-        "total_questions": total_questions,
-        "total_tags": len(tags_list),
-        "total_pages": total_pages,
-        "tags_list": tags_list
-    })
-    
+
+    driver.query(
+        query,
+        {
+            "import_id": import_id,
+            "timestamp": timestamp,
+            "total_questions": total_questions,
+            "total_tags": len(tags_list),
+            "total_pages": total_pages,
+            "tags_list": tags_list,
+        },
+    )
+
     return import_id
+
 
 def get_database_summary(driver):
     """Get summary statistics from the database."""
@@ -318,18 +342,19 @@ def get_database_summary(driver):
          max(log.timestamp) as last_import
     RETURN total_questions, total_tags, total_answers, total_users, total_imports, last_import
     """
-    
+
     result = driver.query(summary_query)
     if result and len(result) > 0:
         return result[0]
     return {
         "total_questions": 0,
-        "total_tags": 0, 
+        "total_tags": 0,
         "total_answers": 0,
         "total_users": 0,
         "total_imports": 0,
-        "last_import": None
+        "last_import": None,
     }
+
 
 def get_import_history(driver, limit: int = 20):
     """Get recent import history from ImportLog nodes."""
@@ -340,7 +365,7 @@ def get_import_history(driver, limit: int = 20):
     ORDER BY log.timestamp DESC
     LIMIT $limit
     """
-    
+
     result = driver.query(history_query, {"limit": limit})
     return result if result else []
 
@@ -362,7 +387,7 @@ def get_entity_counts(driver):
     }
     RETURN label, count
     """
-    
+
     # Relationship counts query
     rel_counts_query = """
     CALL {
@@ -376,13 +401,13 @@ def get_entity_counts(driver):
     }
     RETURN type, count
     """
-    
+
     node_results = driver.query(node_counts_query)
     rel_results = driver.query(rel_counts_query)
-    
-    nodes = {r['label']: r['count'] for r in node_results} if node_results else {}
-    relationships = {r['type']: r['count'] for r in rel_results} if rel_results else {}
-    
+
+    nodes = {r["label"]: r["count"] for r in node_results} if node_results else {}
+    relationships = {r["type"]: r["count"] for r in rel_results} if rel_results else {}
+
     return {"nodes": nodes, "relationships": relationships}
 
 
@@ -400,33 +425,40 @@ def search_nodes(driver, search_term: str, limit: int = 10):
     result = driver.query(query, {"term": search_term, "limit": limit})
     return result if result else []
 
-def get_graph_sample(driver, node_types: list = None, rel_types: list = None, limit: int = 50, focus_node_id: str = None):
+
+def get_graph_sample(
+    driver,
+    node_types: list = None,
+    rel_types: list = None,
+    limit: int = 50,
+    focus_node_id: str = None,
+):
     """
     Fetch a sample of nodes and relationships for visualization.
-    
+
     Args:
         driver: Neo4j graph driver
         node_types: List of node labels to include (default: all)
         rel_types: List of relationship types to include (default: all)
         limit: Maximum number of nodes to return
         focus_node_id: Optional elementId of a node to focus on
-    
+
     Returns:
         dict with 'nodes' and 'edges' lists for visualization
     """
-    all_node_types = ['Question', 'Answer', 'Tag', 'User']
-    all_rel_types = ['TAGGED', 'ANSWERS', 'PROVIDED', 'ASKED']
-    
+    all_node_types = ["Question", "Answer", "Tag", "User"]
+    all_rel_types = ["TAGGED", "ANSWERS", "PROVIDED", "ASKED"]
+
     if not node_types:
         node_types = all_node_types
     if not rel_types:
         rel_types = all_rel_types
-    
+
     # Build dynamic query based on selected types
     nodes = []
     edges = []
     node_ids = set()
-    
+
     # Base query structure depends on whether we are focusing on a node or sampling
     if focus_node_id is not None:
         # Query for neighbors of the focused node (up to 2 hops for better context)
@@ -466,8 +498,8 @@ def get_graph_sample(driver, node_types: list = None, rel_types: list = None, li
         params = {
             "node_types": node_types,
             "rel_types": rel_types,
-            "limit": limit * 3, # Allow more edges for focused view
-            "focus_node_id": str(focus_node_id)
+            "limit": limit * 3,  # Allow more edges for focused view
+            "focus_node_id": str(focus_node_id),
         }
     else:
         # Standard sampling query
@@ -500,48 +532,54 @@ def get_graph_sample(driver, node_types: list = None, rel_types: list = None, li
             END as target_name,
             type(r) as rel_type
         """
-        params = {
-            "node_types": node_types,
-            "rel_types": rel_types,
-            "limit": limit * 2
-        }
-    
+        params = {"node_types": node_types, "rel_types": rel_types, "limit": limit * 2}
+
     results = driver.query(query, params)
-    
+
     if results:
         for r in results:
             # Add source node
-            if r['source_id'] not in node_ids:
-                nodes.append({
-                    'id': r['source_id'],
-                    'label': r['source_name'][:30] if r['source_name'] else str(r['source_id']),
-                    'type': r['source_label'],
-                    'title': r['source_name'],  # Will be improved in frontend
-                    'properties': r.get('source_props', {})
-                })
-                node_ids.add(r['source_id'])
-            
+            if r["source_id"] not in node_ids:
+                nodes.append(
+                    {
+                        "id": r["source_id"],
+                        "label": r["source_name"][:30]
+                        if r["source_name"]
+                        else str(r["source_id"]),
+                        "type": r["source_label"],
+                        "title": r["source_name"],  # Will be improved in frontend
+                        "properties": r.get("source_props", {}),
+                    }
+                )
+                node_ids.add(r["source_id"])
+
             # Add target node
-            if r['target_id'] not in node_ids:
-                nodes.append({
-                    'id': r['target_id'],
-                    'label': r['target_name'][:30] if r['target_name'] else str(r['target_id']),
-                    'type': r['target_label'],
-                    'title': r['target_name'],  # Will be improved in frontend
-                    'properties': r.get('target_props', {})
-                })
-                node_ids.add(r['target_id'])
-            
+            if r["target_id"] not in node_ids:
+                nodes.append(
+                    {
+                        "id": r["target_id"],
+                        "label": r["target_name"][:30]
+                        if r["target_name"]
+                        else str(r["target_id"]),
+                        "type": r["target_label"],
+                        "title": r["target_name"],  # Will be improved in frontend
+                        "properties": r.get("target_props", {}),
+                    }
+                )
+                node_ids.add(r["target_id"])
+
             # Add edge
-            edges.append({
-                'from': r['source_id'],
-                'to': r['target_id'],
-                'label': r['rel_type'],
-                'title': r['rel_type']
-            })
-            
+            edges.append(
+                {
+                    "from": r["source_id"],
+                    "to": r["target_id"],
+                    "label": r["rel_type"],
+                    "title": r["rel_type"],
+                }
+            )
+
             # Limit total nodes (soft limit to ensure connectedness)
             if len(nodes) >= limit * 1.5:
                 break
-    
+
     return {"nodes": nodes, "edges": edges}

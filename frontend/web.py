@@ -13,6 +13,13 @@ from utils.util import (
     render_message_with_mermaid,
     display_container_name,
     get_system_config,
+    fetch_all_users,
+    fetch_user_chats,
+    fetch_chat_history,
+    delete_user_api,
+    delete_chat_api,
+    BACKEND_URL,
+    FASTAPI_URL,
 )
 
 # Setup logging
@@ -31,110 +38,6 @@ st.set_page_config(
         "About": "# This is a header. This is an *extremely* cool app!",
     },
 )
-
-# --- API Configuration ---
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-FASTAPI_URL = f"{BACKEND_URL}/stream-ask"
-CHATS_URL = f"{BACKEND_URL}/api/v1/user"  # /{user_id}/chats
-CHAT_HISTORY_URL = f"{BACKEND_URL}/api/v1/chat"
-USERS_URL = f"{BACKEND_URL}/api/v1/users"
-
-
-# --- API Helper Functions with Error Handling ---
-def fetch_all_users(retry_count=2):
-    """Fetch all users with retry logic."""
-    for attempt in range(retry_count):
-        try:
-            response = requests.get(USERS_URL, timeout=5)
-            response.raise_for_status()
-            data = response.json()
-            if data.get("status") == "success":
-                return data.get("users", [])
-            return []
-        except requests.exceptions.Timeout:
-            if attempt < retry_count - 1:
-                st.warning("Connection timeout, retrying...")
-                continue
-            logger.error(f"Timeout fetching users after {retry_count} attempts")
-            return []
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching users: {e}")
-            if attempt < retry_count - 1:
-                continue
-            return []
-    return []
-
-
-def delete_chat_api(session_id):
-    """Delete a chat session."""
-    try:
-        requests.delete(f"{CHAT_HISTORY_URL}/{session_id}", timeout=5)
-        logger.info(f"Chat {session_id} deleted")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error deleting chat {session_id}: {e}")
-        st.warning(f"Could not delete chat: {str(e)[:50]}")
-
-
-def delete_user_api(user_id):
-    """Delete a user and all their data."""
-    try:
-        requests.delete(f"{BACKEND_URL}/api/v1/user/{user_id}", timeout=5)
-        logger.info(f"User {user_id} deleted")
-    except requests.exceptions.RequestException as e:
-        logger.error(f"Error deleting user {user_id}: {e}")
-        st.warning(f"Could not delete user: {str(e)[:50]}")
-
-
-def fetch_user_chats(user_id, retry_count=2):
-    """Fetch user's chat sessions with retry logic."""
-    for attempt in range(retry_count):
-        try:
-            response = requests.get(f"{CHATS_URL}/{user_id}/chats", timeout=5)
-            response.raise_for_status()
-            data = response.json()
-            if data.get("status") == "success":
-                return data.get("chats", [])
-            return []
-        except requests.exceptions.Timeout:
-            if attempt < retry_count - 1:
-                continue
-            logger.error(f"Timeout fetching chats for user {user_id}")
-            return []
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching chats for user {user_id}: {e}")
-            if attempt < retry_count - 1:
-                continue
-            return []
-    return []
-
-
-def fetch_chat_history(session_id, retry_count=2):
-    """Fetch chat history with retry logic."""
-    for attempt in range(retry_count):
-        try:
-            response = requests.get(f"{CHAT_HISTORY_URL}/{session_id}", timeout=5)
-            response.raise_for_status()
-            data = response.json()
-            if data.get("status") == "success":
-                messages = data.get("messages", [])
-                # Validate messages have required fields
-                validated = []
-                for msg in messages:
-                    if isinstance(msg, dict) and "role" in msg and "content" in msg:
-                        validated.append(msg)
-                return validated
-            return []
-        except requests.exceptions.Timeout:
-            if attempt < retry_count - 1:
-                continue
-            logger.error(f"Timeout fetching history for {session_id}")
-            return []
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Error fetching history for {session_id}: {e}")
-            if attempt < retry_count - 1:
-                continue
-            return []
-    return []
 
 
 # --- Initialize Session State AND Sync with Backend ---
