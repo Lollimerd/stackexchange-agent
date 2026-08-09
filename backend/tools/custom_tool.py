@@ -30,6 +30,35 @@ logger = logging.getLogger(__name__)
 # ===========================================================================================================================================================
 # Crafting custom cypher retrieval queries
 # ===========================================================================================================================================================
+import_query = """
+    UNWIND $data AS q
+    MERGE (question:Question {id:q.question_id}) 
+    ON CREATE SET question.title = q.title, question.link = q.link, question.score = q.score,
+        question.favorite_count = q.favorite_count, question.creation_date = datetime({epochSeconds: q.creation_date}),
+        question.body = q.body_markdown, question.embedding = q.embedding
+    FOREACH (tagName IN q.tags | 
+        MERGE (tag:Tag {name:tagName}) 
+        MERGE (question)-[:TAGGED]->(tag)
+    )
+    FOREACH (a IN q.answers |
+        MERGE (question)<-[:ANSWERS]-(answer:Answer {id:a.answer_id})
+        SET answer.is_accepted = a.is_accepted,
+            answer.score = a.score,
+            answer.creation_date = datetime({epochSeconds:a.creation_date}),
+            answer.body = a.body_markdown,
+            answer.embedding = a.embedding
+        MERGE (answerer:User {id:coalesce(a.owner.user_id, "deleted")}) 
+        ON CREATE SET answerer.display_name = a.owner.display_name,
+                      answerer.reputation= a.owner.reputation
+        MERGE (answer)<-[:PROVIDED]-(answerer)
+    )
+    WITH * WHERE NOT q.owner.user_id IS NULL
+    MERGE (owner:User {id:q.owner.user_id})
+    ON CREATE SET owner.display_name = q.owner.display_name,
+                  owner.reputation = q.owner.reputation
+    MERGE (owner)-[:ASKED]->(question)
+    """
+
 retrieval_query = """
 // Start from vector search result variables: `node`, `score`
 WITH node, score
@@ -137,7 +166,7 @@ RETURN
   } AS metadata,
   score
 ORDER BY score DESC
-LIMIT 20
+LIMIT 50
 """
 
 # Create vector stores with error handling
@@ -176,9 +205,9 @@ def retrieve_raw_docs(question: str) -> List[Document]:
     try:
         # Define the common search arguments once
         common_search_kwargs = {
-            "k": 20,  # Increased initial pool: wider net across all entity types
+            "k": 50,  # Increased initial pool: wider net across all entity types
             "score_threshold": 0.9,  # Slightly lowered to ensure we catch cross-domain links
-            "fetch_k": 200,  # Number of candidates for the initial vector search
+            "fetch_k": 10000,  # Number of candidates for the initial vector search
             "lambda_mult": 0.5,  # Balanced weight between Vector and Full-text
             "params": {
                 "embedding": EMBEDDINGS.embed_query(question),
