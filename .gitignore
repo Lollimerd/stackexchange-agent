@@ -4,7 +4,7 @@ __pycache__/
 *.log
 *.tmp
 *.pyc
-.env
+*.env
 __init__.py
 *.txt
 .venv/
