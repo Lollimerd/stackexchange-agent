@@ -10,7 +10,7 @@ services:
     gpus: all
     volumes:
       - ollama_data:/root/.ollama
-    restart: unless-stopped
+    restart: always
     networks:
       - app-network
 
@@ -57,7 +57,7 @@ services:
 
       # --- disable telemetry
       - NEO4J_dbms_usage_report.enabled=false
-    restart: unless-stopped
+    restart: always
     networks:
       - app-network
     depends_on:
@@ -75,7 +75,7 @@ services:
       - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - OLLAMA_BASE_URL=http://ollama:11434
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
-    restart: unless-stopped
+    restart: always
     user: root
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
@@ -102,7 +102,7 @@ services:
       - OLLAMA_BASE_URL=http://ollama:11434
       - EMBEDDING_MODEL=${EMBEDDING_MODEL}
       - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
-    restart: unless-stopped
+    restart: always
     networks:
       - app-network
     depends_on:
