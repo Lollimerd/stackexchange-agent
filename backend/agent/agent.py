@@ -2,6 +2,7 @@ from langchain.agents import create_agent
 from setup.init_config import answer_LLM
 from tools.graph_rag_tool import graph_rag_tool
 from middleware.in_built import summarize
+from middleware.mermaid_middleware import MermaidValidationMiddleware
 
 import logging
 
@@ -66,7 +67,7 @@ try:
         system_prompt=system_prompt,
         debug=False,
         name="StackExchangeAgent",
-        middleware=[summarize],
+        middleware=[summarize, MermaidValidationMiddleware(max_retries=2)],
     )
 
     logger.info("LangChain Agent initialized successfully with middleware")
