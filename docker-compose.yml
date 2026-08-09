@@ -69,6 +69,7 @@ services:
     container_name: fastapi-backend
     ports:
       - 8000:8000
+    gpus: all
     environment:
       - NEO4J_URL=bolt://graphDB:7687
       - NEO4J_USERNAME=${NEO4J_USERNAME}

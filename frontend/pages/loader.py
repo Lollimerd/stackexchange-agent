@@ -32,14 +32,7 @@ def load_so_data(tag: str, page: int, site: str) -> dict:
         api_key = os.getenv("STACKEXCHANGE_API_KEY")
         key_param = f"&key={api_key}" if api_key else ""
         site = "stackoverflow"
-        parameters = f"""?pagesize=100&
-        page={page}&
-        order=desc&
-        sort=creation&
-        answers=1&
-        tagged={tag}&
-        site={site}&
-        filter=!*236eb_eL9rai)MOSNZ-6D3Q6ZKb0buI*IVotWaTb{key_param}"""
+        parameters = f"""?pagesize=100&page={page}&order=desc&sort=creation&answers=1&tagged={tag}&site={site}&filter=!*236eb_eL9rai)MOSNZ-6D3Q6ZKb0buI*IVotWaTb{key_param}"""
 
         # Retry logic for network flakiness
         max_retries = 3
