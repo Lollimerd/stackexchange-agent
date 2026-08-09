@@ -1,0 +1,150 @@
+version: '3.11-bookworm'
+name: graphrag-chatbot
+
+services:
+  ollama:
+    image: ollama/ollama
+    container_name: localLLMs
+    ports:
+      - "11434:11434"
+    gpus: all
+    restart: unless-stopped
+    networks:
+      - app-network
+
+  graphDB:
+    container_name: stackoverflowDB
+    image: neo4j:latest # Using 'latest' for the most recent Community Edition.
+    ports:
+      - "7473:7474" # Neo4j Browser / HTTP API
+      - "7686:7687" # Bolt protocol for drivers
+    volumes:
+      - neo4j_stackoverflow_data:/data
+    environment:
+      # --- Neo4j Authentication (REQUIRED) ---
+      # It's recommended to use a .env file for sensitive info like passwords.
+      - NEO4J_AUTH=${NEO4J_USERNAME}/${NEO4J_PASSWORD}
+
+      # --- Plugins Configuration ---
+      # This is the key part to enable both GDS and APOC
+      # 'apoc' is for APOC Core. For APOC Extended, you might use 'apoc-extended'
+      - NEO4J_PLUGINS=["apoc", "graph-data-science"]
+
+      # --- Security Configuration for Procedures (CRITICAL for plugins to work) ---
+      # Allow all procedures from APOC and GDS.
+      # You can make this more granular if needed (e.g., apoc.coll.*, gds.alpha.*)
+      - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
+      # Ensure procedures are explicitly allowed if you have a strict allowlist
+      - NEO4J_dbms_security_procedures_allowlist=apoc.*,gds.*
+
+      # --- APOC specific configurations (Optional, but often useful) ---
+      # Enable APOC's file import/export features (for CSV, JSON etc.)
+      - NEO4J_apoc_export_file_enabled=true
+      - NEO4J_apoc_import_file_enabled=true
+      - NEO4J_apoc_import_file_use__neo4j__config=true
+
+      # --- Memory Configuration (Recommended for GDS) ---
+      # Adjust these values based on your host's available RAM and graph size.
+      # GDS often requires more memory for graph projections.
+      - NEO4J_server_memory_heap_initial__size=1G # Minimum initial heap size
+      - NEO4J_server_memory_heap_max__size=4G   # Maximum heap size
+      - NEO4J_server_memory_pagecache_size=2G # For large graphs, dedicate memory to page cache
+      # --- Enable Java Vector API (SIMD) ---
+      - NEO4J_server_jvm_additional=--add-modules=jdk.incubator.vector
+      # --- disable telemetry
+      - NEO4J_dbms_usage_report.enabled=false
+    restart: unless-stopped
+    networks:
+      - app-network
+    depends_on:
+      - ollama
+
+  # db:
+  #   image: postgres:17.2
+  #   container_name: db # database host
+  #   restart: always
+  #   healthcheck:
+  #     test: ["CMD-SHELL", "pg_isready -U postgres"]
+  #     interval: 3s
+  #     timeout: 3s
+  #     retries: 10
+  #   environment:
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_PASSWORD=postgres
+  #     - POSTGRES_DB=postgres
+  #   ports:
+  #     - 5432:5432
+  #   volumes:
+  #     - database_data:/var/lib/postgresql/data
+  #   networks:
+  #     - app-network
+
+  # langfuse-server:
+  #   image: langfuse/langfuse:2
+  #   container_name: langfuse-server
+  #   restart: always
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   ports:
+  #     - "4000:4000"
+  #   env_file:
+  #     - langfuse.env
+  #   networks:
+  #     - app-network
+
+  backend-server:
+    build:
+      context: ./backend 
+    container_name: fastapi-backend
+    ports:
+      - 8000:8000
+    environment:
+      - NEO4J_URL=bolt://graphDB:7687
+      - NEO4J_USERNAME=${NEO4J_USERNAME}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
+    restart: always
+    user: root
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - app-network
+    depends_on:
+      graphDB:
+        condition: service_started
+      ollama:
+        condition: service_started
+  
+  frontend:
+    build:
+      context: ./frontend 
+    container_name: streamlit-frontend
+    ports:
+      - 8501:8501
+    environment:
+      - BACKEND_URL=http://backend-server:8000
+      - NEO4J_URL=bolt://graphDB:7687
+      - NEO4J_USERNAME=${NEO4J_USERNAME}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL}
+      - STACKEXCHANGE_API_KEY=${STACKEXCHANGE_API_KEY}
+    restart: unless-stopped
+    networks:
+      - app-network
+    depends_on:
+      backend-server:
+        condition: service_started
+      graphDB:
+        condition: service_started
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  neo4j_movie_data:
+  neo4j_stackoverflow_data:
+  database_data:

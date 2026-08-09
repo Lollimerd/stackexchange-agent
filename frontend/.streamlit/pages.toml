@@ -1,0 +1,19 @@
+[[pages]]
+path = "page1.py"
+name = "Home"
+icon = "🏠"
+
+[[pages]]
+path = "other_pages/page2.py"
+name = "Page 2"
+icon = ":books:"
+
+[[pages]]
+name = "My section"
+icon = "🎈️"
+is_section = true
+
+# Pages after an `is_section = true` will be indented
+[[pages]]
+name = "Another page"
+icon = "💪"

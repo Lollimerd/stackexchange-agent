@@ -1,0 +1,539 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "https://marketplace.visualstudio.com/items?itemName=pomdtr.excalidraw-editor",
+  "elements": [
+    {
+      "type": "line",
+      "version": 955,
+      "versionNonce": 79377855,
+      "isDeleted": false,
+      "id": "WyaLROmau_-8BTnrKsbR_",
+      "fillStyle": "hachure",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "angle": 0,
+      "x": 192.35582774458533,
+      "y": 247.74333057298065,
+      "strokeColor": "#ffffff",
+      "backgroundColor": "transparent",
+      "width": 1051.4439712322958,
+      "height": 1.9123128098382411,
+      "seed": 1719224737,
+      "groupIds": [
+        "o-h0ByJgn5_1VzoVvDB2G",
+        "zDYn8pc3sqkzdGwzgrVsP"
+      ],
+      "strokeSharpness": "round",
+      "boundElementIds": [],
+      "startBinding": null,
+      "endBinding": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1051.4439712322958,
+          1.9123128098382411
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": null,
+      "index": "a0",
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "boundElements": [],
+      "updated": 1760685509595,
+      "link": null,
+      "locked": false
+    },
+    {
+      "type": "ellipse",
+      "version": 891,
+      "versionNonce": 1530608977,
+      "isDeleted": false,
+      "id": "r1jDp_siWVcp0u4qlzjBu",
+      "fillStyle": "hachure",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "angle": 0,
+      "x": 226.12521307813915,
+      "y": 171.40212822305162,
+      "strokeColor": "#000000",
+      "backgroundColor": "transparent",
+      "width": 41.18462156609541,
+      "height": 40.580504340535924,
+      "seed": 314666369,
+      "groupIds": [
+        "o-h0ByJgn5_1VzoVvDB2G",
+        "zDYn8pc3sqkzdGwzgrVsP"
+      ],
+      "strokeSharpness": "round",
+      "boundElementIds": [],
+      "index": "a1",
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "boundElements": [],
+      "updated": 1760685503336,
+      "link": null,
+      "locked": false
+    },
+    {
+      "type": "ellipse",
+      "version": 962,
+      "versionNonce": 1998502975,
+      "isDeleted": false,
+      "id": "O6cN5BRx9ZUMGMuDThOiN",
+      "fillStyle": "hachure",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "angle": 0,
+      "x": 285.42859458247045,
+      "y": 171.40212822305162,
+      "strokeColor": "#000000",
+      "backgroundColor": "transparent",
+      "width": 41.18462156609541,
+      "height": 40.580504340535924,
+      "seed": 1847203169,
+      "groupIds": [
+        "o-h0ByJgn5_1VzoVvDB2G",
+        "zDYn8pc3sqkzdGwzgrVsP"
+      ],
+      "strokeSharpness": "round",
+      "boundElementIds": [],
+      "index": "a2",
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "boundElements": [],
+      "updated": 1760685503336,
+      "link": null,
+      "locked": false
+    },
+    {
+      "type": "ellipse",
+      "version": 1010,
+      "versionNonce": 51267967,
+      "isDeleted": false,
+      "id": "SDy8RlWpHLCAqJFVCz4Nl",
+      "fillStyle": "hachure",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "angle": 0,
+      "x": 342.7008102969327,
+      "y": 170.15212822305162,
+      "strokeColor": "#000000",
+      "backgroundColor": "transparent",
+      "width": 41.18462156609541,
+      "height": 40.580504340535924,
+      "seed": 1272103233,
+      "groupIds": [
+        "o-h0ByJgn5_1VzoVvDB2G",
+        "zDYn8pc3sqkzdGwzgrVsP"
+      ],
+      "strokeSharpness": "round",
+      "boundElementIds": [],
+      "index": "a3",
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "boundElements": [],
+      "updated": 1760685506955,
+      "link": null,
+      "locked": false
+    },
+    {
+      "type": "line",
+      "version": 1969,
+      "versionNonce": 1234885727,
+      "isDeleted": false,
+      "id": "h3771_22cWHqLJZYruZ7_",
+      "fillStyle": "hachure",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "angle": 0,
+      "x": 156.479440465675,
+      "y": 492.1008791787123,
+      "strokeColor": "#000000",
+      "backgroundColor": "transparent",
+      "width": 1116.7222664239432,
+      "height": 745.880269011836,
+      "seed": 1766519073,
+      "groupIds": [
+        "o-h0ByJgn5_1VzoVvDB2G",
+        "zDYn8pc3sqkzdGwzgrVsP"
+      ],
+      "strokeSharpness": "round",
+      "boundElementIds": [],
+      "startBinding": null,
+      "endBinding": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          1.2815265852925672,
+          -150.18856095487197
+        ],
+        [
+          1.7941372194095944,
+          -298.56907342312826
+        ],
+        [
+          16.40354029174486,
+          -358.95789287609045
+        ],
+        [
+          81.7613961416658,
+          -368.118671874943
+        ],
+        [
+          349.3441471507539,
+          -366.19008682255304
+        ],
+        [
+          711.7598654714918,
+          -367.63652561184546
+        ],
+        [
+          1044.1878616963838,
+          -366.19008682255304
+        ],
+        [
+          1104.163305888076,
+          -354.85964963976164
+        ],
+        [
+          1116.2096557898262,
+          -297.00209806806134
+        ],
+        [
+          1113.646602619241,
+          -139.58134316672692
+        ],
+        [
+          1113.0058393265947,
+          14.584924458699444
+        ],
+        [
+          1111.0835494486557,
+          156.69753550668847
+        ],
+        [
+          1114.4155185704165,
+          311.22541282943774
+        ],
+        [
+          1106.9826643757197,
+          371.975841979723
+        ],
+        [
+          1046.7509148669687,
+          377.76159713689304
+        ],
+        [
+          752.5124108837952,
+          376.3151583476006
+        ],
+        [
+          341.39868232193993,
+          371.4936957166255
+        ],
+        [
+          77.40420575167107,
+          371.975841979723
+        ],
+        [
+          8.714380779989456,
+          366.19008682255304
+        ],
+        [
+          1.0252212682340538,
+          302.5467800936827
+        ],
+        [
+          -0.512610634117027,
+          154.28680419120093
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": null,
+      "index": "a4",
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "boundElements": [],
+      "updated": 1760685503336,
+      "link": null,
+      "locked": false
+    },
+    {
+      "type": "line",
+      "version": 944,
+      "versionNonce": 1465310481,
+      "isDeleted": false,
+      "id": "RrS--AurvMiRKWn_DZ8kM",
+      "fillStyle": "hachure",
+      "strokeWidth": 1,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "angle": 0,
+      "x": 823.4240211472694,
+      "y": 162.20850796728206,
+      "strokeColor": "#000000",
+      "backgroundColor": "transparent",
+      "width": 756.4055683487586,
+      "height": 50.03157402850632,
+      "seed": 737289473,
+      "groupIds": [
+        "o-h0ByJgn5_1VzoVvDB2G",
+        "zDYn8pc3sqkzdGwzgrVsP"
+      ],
+      "strokeSharpness": "round",
+      "boundElementIds": [],
+      "startBinding": null,
+      "endBinding": null,
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          334.3229031375728,
+          0
+        ],
+        [
+          383.42657953590384,
+          10.791123810069987
+        ],
+        [
+          383.42657953590384,
+          45.12651775120178
+        ],
+        [
+          335.3676622098778,
+          49.05056277304541
+        ],
+        [
+          0,
+          50.03157402850632
+        ],
+        [
+          -310.29344447455975,
+          49.05056277304541
+        ],
+        [
+          -369.84471159594,
+          49.05056277304541
+        ],
+        [
+          -372.9789888128547,
+          11.772135065530899
+        ],
+        [
+          -322.8305533422187,
+          0
+        ],
+        [
+          0,
+          0
+        ]
+      ],
+      "lastCommittedPoint": null,
+      "startArrowhead": null,
+      "endArrowhead": null,
+      "index": "a5",
+      "frameId": null,
+      "roundness": {
+        "type": 2
+      },
+      "boundElements": [],
+      "updated": 1760685503336,
+      "link": null,
+      "locked": false
+    },
+    {
+      "id": "xWT2Boa0x31EZR0GMn0OP",
+      "type": "text",
+      "x": 207.44950262631335,
+      "y": 273.58071355675327,
+      "width": 1023.4287165164359,
+      "height": 563.0038967335486,
+      "angle": 0,
+      "strokeColor": "#ffffff",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [
+        "zDYn8pc3sqkzdGwzgrVsP"
+      ],
+      "frameId": null,
+      "index": "a6",
+      "roundness": null,
+      "seed": 1790989167,
+      "version": 974,
+      "versionNonce": 333314175,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1760685503336,
+      "link": null,
+      "locked": false,
+      "text": "Langchain_Neo4j:\nNeo4jVector: vector store creation\nGraphCypherQAChain: dynamic graphRAG\nNeo4jGraph: graph enhanced retrieval query\n\nLangchain_ollama\nChatOllama: llm hosting\nOllamaEmbeddings: embed for cosine similarity (vector search)\n\nLangchain_retrievers\nEnsembleRetriever, vectorstore.asretriever(query, k=top_k)\n\nClass: State\nTypedDict\nDocument [List]\ncontext: str",
+      "fontSize": 28.15019483667743,
+      "fontFamily": 5,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "originalText": "Langchain_Neo4j:\nNeo4jVector: vector store creation\nGraphCypherQAChain: dynamic graphRAG\nNeo4jGraph: graph enhanced retrieval query\n\nLangchain_ollama\nChatOllama: llm hosting\nOllamaEmbeddings: embed for cosine similarity (vector search)\n\nLangchain_retrievers\nEnsembleRetriever, vectorstore.asretriever(query, k=top_k)\n\nClass: State\nTypedDict\nDocument [List]\ncontext: str",
+      "autoResize": false,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "ZPnB_UjkzZikQ2NjQQu7m",
+      "type": "text",
+      "x": 1319.1251970823548,
+      "y": 150.35072440226054,
+      "width": 560.251708984375,
+      "height": 455,
+      "angle": 0,
+      "strokeColor": "#ffffff",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a7",
+      "roundness": null,
+      "seed": 582708470,
+      "version": 495,
+      "versionNonce": 971507697,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1760685489739,
+      "link": null,
+      "locked": false,
+      "text": "GraphRAG enhancements:\nhybrid search of:\nvector similarity search (cosine distance)\nfull text search (keyword based)\n\nprompt:\nstep back (tbd)\n\nquery rewriting:\n\nreranking: \nensemble retriver\nbm25 retriever (tbd)",
+      "fontSize": 28,
+      "fontFamily": 5,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "originalText": "GraphRAG enhancements:\nhybrid search of:\nvector similarity search (cosine distance)\nfull text search (keyword based)\n\nprompt:\nstep back (tbd)\n\nquery rewriting:\n\nreranking: \nensemble retriver\nbm25 retriever (tbd)",
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "QScz2aI0rCVQxRY7hFdDk",
+      "type": "text",
+      "x": 1318.245856896291,
+      "y": 639.1107704912359,
+      "width": 497.6998291015625,
+      "height": 280,
+      "angle": 0,
+      "strokeColor": "#ffffff",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "a8",
+      "roundness": null,
+      "seed": 448915723,
+      "version": 394,
+      "versionNonce": 775480218,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1761576124432,
+      "link": null,
+      "locked": false,
+      "text": "agentic: knows which method to use\nfact check: vector sim\ncomplex: hand craft cypher retrieval \nnovel/big: text2cypher\n\nAI agent: retrieval router\n\n",
+      "fontSize": 28,
+      "fontFamily": 5,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "originalText": "agentic: knows which method to use\nfact check: vector sim\ncomplex: hand craft cypher retrieval \nnovel/big: text2cypher\n\nAI agent: retrieval router\n\n",
+      "autoResize": true,
+      "lineHeight": 1.25
+    },
+    {
+      "id": "dDKWtvTqW9JpkIog1kLPa",
+      "type": "text",
+      "x": 195.06539663497597,
+      "y": 190.81593373234045,
+      "width": 341.63970947265625,
+      "height": 25,
+      "angle": 0,
+      "strokeColor": "#ffffff",
+      "backgroundColor": "transparent",
+      "fillStyle": "solid",
+      "strokeWidth": 2,
+      "strokeStyle": "solid",
+      "roughness": 1,
+      "opacity": 100,
+      "groupIds": [],
+      "frameId": null,
+      "index": "aG",
+      "roundness": null,
+      "seed": 1068704319,
+      "version": 42,
+      "versionNonce": 491435871,
+      "isDeleted": false,
+      "boundElements": [],
+      "updated": 1760685539743,
+      "link": null,
+      "locked": false,
+      "text": "Configuration settings: Tech stack",
+      "fontSize": 20,
+      "fontFamily": 5,
+      "textAlign": "left",
+      "verticalAlign": "top",
+      "containerId": null,
+      "originalText": "Configuration settings: Tech stack",
+      "autoResize": true,
+      "lineHeight": 1.25
+    }
+  ],
+  "appState": {
+    "gridSize": 20,
+    "gridStep": 5,
+    "gridModeEnabled": false,
+    "viewBackgroundColor": "#000000"
+  },
+  "files": {}
+}

@@ -1,0 +1,9 @@
+responses/
+archive/
+__pycache__/
+*.log
+*.tmp
+*.pyc
+.env
+__init__.py
+*.txt

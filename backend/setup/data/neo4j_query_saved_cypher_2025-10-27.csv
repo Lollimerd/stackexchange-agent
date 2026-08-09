@@ -1,0 +1,52 @@
+name,description,query,id,parentId,isFolder
+apoc save,,"CALL apoc.periodic.iterate(
+        // Outer query remains the same
+        ""MATCH ()-[r]-() RETURN id(r) AS relId"",
+        
+        // Inner query: Now with a robust WHERE clause
+        ""MATCH (n1)-[r]-(n2) WHERE id(r) = relId 
+        AND n1.embedding IS NOT NULL 
+        AND n2.embedding IS NOT NULL 
+        SET r.weight = gds.similarity.cosine(n1.embedding, n2.embedding)"",
+        
+        // Configuration remains the same
+        {batchSize: 10000, parallel: true}
+        )
+        YIELD batches, total, timeTaken, committedOperations",0,,false
+cosine gds to community detection,,"// Step 1: Project the graph, including the 'weight' property from relationships
+CALL gds.graph.project(
+'community-graph', // Use a new name for the weighted graph
+['Answer', 'Question', 'Tag', 'User'],
+{
+    REL: {
+    type: '*',
+    orientation: 'UNDIRECTED', // follow native relationsip direction
+    // ✨ This tells GDS to load the 'weight' property into memory
+    properties: 'weight' 
+    }}
+);",1,,false
+write louvain main,,"CALL gds.louvain.write(
+            'community-graph',
+            {
+                writeProperty: 'communityId',
+                relationshipWeightProperty: 'weight', // <-- Corrected to use the 'count' property
+                includeIntermediateCommunities: true,
+                tolerance: 0.0000001 // Adjust the sensitivity of the algorithm
+            }
+        )
+        YIELD communityCount, modularity, modularities;",2,,false
+reset community,,"MATCH (n)
+REMOVE n.communityId",3,,false
+write leiden from gds,,"CALL gds.leiden.write(
+            'community-graph',
+            {
+                writeProperty: 'communityId',
+                relationshipWeightProperty: 'weight', // <-- Corrected to use the 'count' property
+                includeIntermediateCommunities: true,
+                tolerance: 0.000001, // Adjust the sensitivity of the algorithm
+                gamma: 3.0,
+                theta: 0.01
+            }
+        )
+        YIELD communityCount, modularity, modularities;",4,,false
+num of qnestions,,MATCH (n:Question) RETURN COUNT(n),5,,false
