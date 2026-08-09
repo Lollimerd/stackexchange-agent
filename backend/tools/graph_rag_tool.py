@@ -1,9 +1,9 @@
-from setup.init import (
-    graph,
-    EMBEDDINGS,
+from setup.init_config import (
+    get_graph_instance,
+    embedding_model,
     create_vector_stores,
-    ANSWER_LLM,
-    RERANKER_MODEL,
+    answer_LLM,
+    reranker_model,
 )
 
 from langchain_classic.retrievers.ensemble import EnsembleRetriever
@@ -14,9 +14,13 @@ from langchain_classic.retrievers.document_compressors.cross_encoder_rerank impo
 from langchain_core.runnables import RunnablePassthrough, RunnableLambda
 from typing import List, Dict, Optional, Type
 from langchain_core.documents import Document
-from prompts.st_overflow import analyst_prompt
+from prompts.system_prompts import analyst_prompt
 from utils.util import format_docs_with_metadata, escape_lucene_chars
 from langchain_core.tools import BaseTool
+from agent.messages import format_chat_history
+from middleware.langchain_middleware import (
+    process_with_topic_analysis,
+)
 from langchain_core.callbacks import (
     CallbackManagerForToolRun,
     AsyncCallbackManagerForToolRun,
@@ -166,12 +170,14 @@ RETURN
   } AS metadata,
   score
 ORDER BY score DESC
-LIMIT 50
+LIMIT 100
 """
 
 # Create vector stores with error handling
 try:
-    stores = create_vector_stores(graph, EMBEDDINGS, retrieval_query)
+    stores = create_vector_stores(
+        get_graph_instance(), embedding_model(), retrieval_query
+    )
     tagstore = stores.get("tagstore")
     userstore = stores.get("userstore")
     questionstore = stores.get("questionstore")
@@ -187,7 +193,7 @@ except Exception as e:
 # create compressor
 try:
     compressor = CrossEncoderReranker(
-        model=RERANKER_MODEL,
+        model=reranker_model(),
         top_n=10,  # This will return the top n most relevant documents.
     )
 except Exception as e:
@@ -205,12 +211,12 @@ def retrieve_raw_docs(question: str) -> List[Document]:
     try:
         # Define the common search arguments once
         common_search_kwargs = {
-            "k": 50,  # Increased initial pool: wider net across all entity types
+            "k": 100,  # Increased initial pool: wider net across all entity types
             "score_threshold": 0.9,  # Slightly lowered to ensure we catch cross-domain links
             "fetch_k": 10000,  # Number of candidates for the initial vector search
             "lambda_mult": 0.5,  # Balanced weight between Vector and Full-text
             "params": {
-                "embedding": EMBEDDINGS.embed_query(question),
+                "embedding": embedding_model().embed_query(question),
                 "keyword_query": escape_lucene_chars(question),
             },
         }
@@ -289,112 +295,34 @@ def rerank_docs(inputs: Dict) -> List[Document]:
         return []
 
 
-def format_chat_history(chat_history: List[Dict[str, str]]) -> str:
-    """Format chat history for inclusion in the prompt."""
-    try:
-        if not chat_history:
-            return ""
+# ===========================================================================================================================================================
+# Chain Assembly
+# ===========================================================================================================================================================
 
-        formatted_history = []
-        for msg in chat_history:
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if role == "user":
-                formatted_history.append(f"User: {content}")
-            elif role == "assistant":
-                # Only include the main content, not the thought process
-                formatted_history.append(f"Assistant: {content}")
-
-        return "\n".join(formatted_history)
-    except Exception as e:
-        logger.error(f"Error formatting chat history: {e}")
-        return ""
-
-
-def check_context_presence(input_dict: Dict) -> Dict:
-    """Adds a system flag if the guardrail blocked all documents."""
-    context = input_dict.get("context", "")
-    # Check if our specific content delimiter is present
-    if not context or "--------- CONTENT ---------" not in context:
-        input_dict["context"] = (
-            "[SYSTEM NOTE: NO RELEVANT DATA FOUND IN KNOWLEDGE GRAPH]"
-        )
-        logger.info("Context fallback applied: No relevant data found.")
-    return input_dict
-
-
-def process_with_topic_analysis(input_dict: Dict) -> Dict:
-    """Enriches input with topic continuity analysis before processing."""
-    try:
-        from utils.topic_manager import TopicManager
-
-        question = input_dict.get("question", "")
-        session_topic = input_dict.get("session_topic", "")
-        session_id = input_dict.get("session_id", "")
-
-        # Calculate similarity
-        similarity_data = TopicManager.calculate_topic_similarity(
-            question, session_topic
-        )
-
-        # Get relevant previous context
-        relevant_context = []
-        if session_id:
-            relevant_context = TopicManager.get_relevant_context_for_continuation(
-                session_id, question, max_messages=3
-            )
-
-        # Format relevant context
-        relevant_context_str = ""
-        if relevant_context:
-            for msg in relevant_context:
-                role = "User" if msg["role"] == "user" else "Assistant"
-                relevant_context_str += f"{role}: {msg['content']}\n\n"
-
-        # Return enriched input
-        return {
-            **input_dict,
-            "session_topic": session_topic or "General Discussion",
-            "topic_similarity_score": f"{similarity_data['similarity_score']:.2f}",
-            "topic_confidence": similarity_data["confidence_level"],
-            "topic_status": similarity_data["recommendation"],
-            "relevant_context": relevant_context_str
-            or "[No previous context available]",
-            "continuity_instruction": similarity_data["recommendation"],
-        }
-    except Exception as e:
-        logger.error(f"Error in topic analysis: {e}")
-        return {
-            **input_dict,
-            "session_topic": input_dict.get("session_topic", "General Discussion"),
-            "topic_similarity_score": "0.50",
-            "topic_confidence": "low",
-            "topic_status": "Unable to determine topic status",
-            "relevant_context": "[Error retrieving relevant context]",
-            "continuity_instruction": "Proceed with caution due to analysis error",
-        }
-
-
+# 1. Retrieval Sequence: Fetch -> Rerank
 retrieval_chain = RunnablePassthrough.assign(
     docs=lambda x: RunnableLambda(retrieve_raw_docs)
     .with_config(run_name="GraphTraversal")
     .invoke(x["question"])
 ) | RunnableLambda(rerank_docs).with_config(run_name="Reranking")
 
-# This chain is activated for GraphRAG.
+# 2. Main GraphRAG Chain
+# Flow: Input -> Context/History Prep -> Topic Analysis -> LLM Generation
 try:
-    graph_rag_chain = (
-        RunnablePassthrough.assign(
-            context=retrieval_chain | format_docs_with_metadata,
-            chat_history_formatted=lambda x: format_chat_history(
-                x.get("chat_history", [])
-            ),
-        )
-        # Fix: Run topic analysis ONCE and merge results
-        | process_with_topic_analysis
-        | analyst_prompt
-        | ANSWER_LLM
+    # Prepare inputs for the LLM (Context + History)
+    input_preparation = RunnablePassthrough.assign(
+        context=retrieval_chain | format_docs_with_metadata,
+        chat_history_formatted=lambda x: format_chat_history(x.get("chat_history", [])),
     )
+
+    graph_rag_chain = (
+        input_preparation
+        # Topic Analysis Middleware: Inspects context/history to maintain session topic
+        | process_with_topic_analysis
+        # Final Answer Generation
+        | answer_LLM()
+    )
+
     logger.info("GraphRAG chain with topic analysis initialized successfully")
 except Exception as e:
     logger.error(f"Error initializing GraphRAG chain: {e}")

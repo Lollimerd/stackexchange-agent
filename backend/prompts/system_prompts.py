@@ -25,29 +25,13 @@ First, think step-by-step about the user's question and the provided context.
 
 ### CONVERSATION TOPIC AND CONTINUITY:
 **Primary Topic: {session_topic}**
-**Similarity Confidence: {topic_confidence}**
-**Topic Status: {topic_status}**
 
-{continuity_instruction}
-
-**If this is a CONTINUATION (similarity > 0.6):**
-1. Reference the previous discussion naturally (e.g., "As we discussed...")
-2. Build on established concepts and solutions
-3. Provide deeper insights or edge cases
-4. Use specific examples from earlier in the conversation
-5. Avoid repeating explanations already given
-
-**If this is a POSSIBLE_CONTINUATION (0.55-0.6 similarity):**
-1. Acknowledge the shift in direction
-2. Connect to the previous topic if possible
-3. Make it clear when you're introducing new context
-4. Offer to return to the original topic if needed
-
-**If this is a NEW_TOPIC (similarity < 0.55):**
-1. Gracefully acknowledge the topic change
-2. You may reference the previous topic for context, but focus on the new question
-3. Treat this as a fresh thread of discussion
-4. Start your analysis from first principles for this new topic
+**INSTRUCTIONS FOR CONTINUITY:**
+This session is a continuous conversation centered around the Primary Topic.
+1. Always treat the user's current question as a follow-up to the session topic.
+2. Reference previous discussion naturally (e.g., "As we discussed...", "Building on that...").
+3. Use context from the chat history to provide a cohesive answer.
+4. If the user asks something seemingly unrelated, try to bridge it back to the main topic or answer it while maintaining the persona of the current session.
 
 **CRITICAL: Always use chat history to maintain continuity**
 - Reference by saying "As we discussed earlier..." or "Building on our previous discussion..."
@@ -99,11 +83,8 @@ human_input_template = """
 ### CONTEXT:
 {context}
 
-### SESSION TOPIC ANALYSIS:
-Topic: {session_topic}
-Similarity Score: {topic_similarity_score}
-Confidence: {topic_confidence}
-Status: {topic_status}
+### TOPIC:
+{session_topic}
 
 ### RELEVANT CONTEXT FROM CONVERSATION:
 {relevant_context}

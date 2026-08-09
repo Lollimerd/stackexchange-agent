@@ -1,24 +1,14 @@
 from langchain_neo4j import Neo4jChatMessageHistory, Neo4jGraph
-from setup.init import NEO4J_URL, NEO4J_USERNAME, NEO4J_PASSWORD
+from setup.init_config import (
+    NEO4J_URL,
+    NEO4J_USERNAME,
+    NEO4J_PASSWORD,
+    get_graph_instance,
+)
 from datetime import datetime
 import logging
 
 logger = logging.getLogger(__name__)
-
-# FIX: Create module-level graph instance for connection pooling
-# Instead of creating new connections on every call
-_graph_instance = None
-_chat_history_cache = {}
-
-
-def get_graph_instance() -> Neo4jGraph:
-    """Get or create a reusable Neo4j graph instance (connection pooling)."""
-    global _graph_instance
-    if _graph_instance is None:
-        _graph_instance = Neo4jGraph(
-            url=NEO4J_URL, username=NEO4J_USERNAME, password=NEO4J_PASSWORD
-        )
-    return _graph_instance
 
 
 def get_chat_history(session_id: str):

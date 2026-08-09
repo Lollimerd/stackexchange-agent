@@ -18,41 +18,54 @@ NEO4J_USERNAME = os.getenv("NEO4J_USERNAME")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 
+
 # qwen3:8b works for now with limited context of 40k, qwen3:30b works with 256k max
-ANSWER_LLM = ChatOllama(
-    model="qwen3:1.7b",
-    base_url=OLLAMA_BASE_URL,
-    num_ctx=40968,  # 40k context
-    num_predict=8192,  # max tokens in answer
-    temperature=0.1,  # less random
-    repeat_penalty=1.5,  # higher, penalise repetitions
-    repeat_last_n=-1,  # look back within context to penalise penalty
-    top_p=0.5,  # more focused text
-    top_k=10,  # give less diverse answers
-    reasoning=True,
-)
+def answer_LLM():
+    return ChatOllama(
+        model="qwen3:1.7b",
+        base_url=OLLAMA_BASE_URL,
+        num_ctx=40968,  # 40k context
+        num_predict=8192,  # max tokens in answer
+        temperature=0.1,  # less random
+        repeat_penalty=1.5,  # higher, penalise repetitions
+        repeat_last_n=-1,  # look back within context to penalise penalty
+        top_p=0.5,  # more focused text
+        top_k=10,  # give less diverse answers
+        reasoning=True,
+    )
+
 
 # embedding model
-EMBEDDINGS = OllamaEmbeddings(
-    model="jina/jina-embeddings-v2-base-en:latest",
-    base_url=OLLAMA_BASE_URL,
-    num_ctx=8192,  # 8k context
-)
+def embedding_model():
+    return OllamaEmbeddings(
+        model="jina/jina-embeddings-v2-base-en:latest",
+        base_url=OLLAMA_BASE_URL,
+        num_ctx=8192,  # 8k context
+        num_thread=16,
+    )
+
 
 # reranker model
-RERANKER_MODEL = HuggingFaceCrossEncoder(
-    model_name="BAAI/bge-reranker-base",
-    model_kwargs={"device": "cuda"},  # Use 'cuda' for GPU acceleration
-)
+def reranker_model():
+    return HuggingFaceCrossEncoder(
+        model_name="BAAI/bge-reranker-base",
+        model_kwargs={"device": "cuda"},  # Use 'cuda' for GPU acceleration
+    )
 
-# neo4j connection
-graph = Neo4jGraph(
-    url=NEO4J_URL,
-    username=NEO4J_USERNAME,
-    password=NEO4J_PASSWORD,
-    enhanced_schema=True,
-    refresh_schema=True,
-)
+
+_graph_instance = None
+
+
+def get_graph_instance() -> Neo4jGraph:
+    """Get or create a reusable Neo4j graph instance (connection pooling)."""
+    global _graph_instance
+    if _graph_instance is None:
+        _graph_instance = Neo4jGraph(
+            url=NEO4J_URL, username=NEO4J_USERNAME, password=NEO4J_PASSWORD
+        )
+    return _graph_instance
+
+
 # print(f"\nschema: {graph.schema}\n")
 
 
