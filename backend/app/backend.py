@@ -12,10 +12,20 @@ from utils.util import find_container_by_port
 from setup.init import ANSWER_LLM, NEO4J_URL, NEO4J_USERNAME, NEO4J_PASSWORD
 from tools.custom_tool import graph_rag_chain
 from utils.memory import (
-    get_chat_history, get_user_sessions, link_session_to_user, 
-    get_all_users, delete_session, delete_user, 
-    add_user_message_to_session, add_ai_message_to_session, get_session_topic,
-    calculate_topic_similarity, update_session_topic_if_changed, get_relevant_context_for_continuation
+    get_chat_history,
+    get_user_sessions,
+    link_session_to_user,
+    get_all_users,
+    delete_session,
+    delete_user,
+    add_user_message_to_session,
+    add_ai_message_to_session,
+)
+from utils.topic_continuity import (
+    get_session_topic,
+    calculate_topic_similarity,
+    update_session_topic_if_changed,
+    get_relevant_context_for_continuation,
 )
 
 # Load environment variables
@@ -41,20 +51,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 class QueryRequest(BaseModel):
     """configure question template for answer LLM"""
+
     question: str
     session_id: str
     user_id: str = ""
 
-@app.get('/')
+
+@app.get("/")
 def index():
     return {"status": "online", "message": "Welcome to the GraphRAG API"}
 
-@app.get('/health')
+
+@app.get("/health")
 def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
 
 # --- Add config endpoint ---
 @app.get("/api/v1/config")
@@ -66,7 +81,11 @@ def get_configuration():
         neo4j_host = parsed_url.hostname
         discovered_name = find_container_by_port(neo4j_port)
 
-        if "not mounted" in discovered_name or "Error" in discovered_name or "Invalid" in discovered_name:
+        if (
+            "not mounted" in discovered_name
+            or "Error" in discovered_name
+            or "Invalid" in discovered_name
+        ):
             container_name = f"{neo4j_host} (Configured Host)"
         else:
             container_name = discovered_name
@@ -76,7 +95,7 @@ def get_configuration():
             "neo4j_url": NEO4J_URL,
             "container_name": container_name,
             "neo4j_user": NEO4J_USERNAME,
-            "status": "success"
+            "status": "success",
         }
     except Exception as e:
         logger.error(f"Error in get_configuration: {e}")
@@ -85,8 +104,9 @@ def get_configuration():
             "message": str(e),
             "ollama_model": "unknown",
             "neo4j_url": NEO4J_URL,
-            "container_name": "unknown"
+            "container_name": "unknown",
         }
+
 
 @app.get("/api/v1/users")
 def get_users():
@@ -98,6 +118,7 @@ def get_users():
         logger.error(f"Error fetching users: {e}")
         return {"users": [], "status": "error", "message": str(e)}
 
+
 @app.get("/api/v1/user/{user_id}/chats")
 def get_user_chats(user_id: str):
     """Returns a list of chat sessions for a specific user."""
@@ -108,6 +129,7 @@ def get_user_chats(user_id: str):
         logger.error(f"Error fetching chats for user {user_id}: {e}")
         return {"chats": [], "status": "error", "message": str(e)}
 
+
 @app.get("/api/v1/chat/{session_id}")
 def get_chat_messages(session_id: str):
     """Returns the message history for a specific session, including thoughts for AI messages."""
@@ -115,9 +137,7 @@ def get_chat_messages(session_id: str):
         from langchain_neo4j import Neo4jGraph
 
         graph = Neo4jGraph(
-            url=NEO4J_URL,
-            username=NEO4J_USERNAME,
-            password=NEO4J_PASSWORD
+            url=NEO4J_URL, username=NEO4J_USERNAME, password=NEO4J_PASSWORD
         )
 
         query = """
@@ -133,16 +153,17 @@ def get_chat_messages(session_id: str):
 
         # Map 'ai' role to 'assistant' for frontend compatibility
         for res in results:
-            if res.get('role') == 'ai':
-                res['role'] = 'assistant'
+            if res.get("role") == "ai":
+                res["role"] = "assistant"
             # Ensure thought is present (might be None)
-            if 'thought' not in res:
-                res['thought'] = None
+            if "thought" not in res:
+                res["thought"] = None
 
         return {"messages": results, "status": "success"}
     except Exception as e:
         logger.error(f"Error fetching chat history for {session_id}: {e}")
         return {"messages": [], "status": "error", "message": str(e)}
+
 
 @app.delete("/api/v1/chat/{session_id}")
 def delete_user_session(session_id: str):
@@ -154,6 +175,7 @@ def delete_user_session(session_id: str):
         logger.error(f"Error deleting session {session_id}: {e}")
         return {"status": "error", "message": str(e)}
 
+
 @app.delete("/api/v1/user/{user_id}")
 def delete_app_user(user_id: str):
     """Deletes a user and all their data."""
@@ -164,62 +186,59 @@ def delete_app_user(user_id: str):
         logger.error(f"Error deleting user {user_id}: {e}")
         return {"status": "error", "message": str(e)}
 
+
 # --- ✨ REFACTORED: Streaming Endpoint with Thinking Handler ---
 # FIX: Use asyncio.to_thread to prevent Neo4j blocking from blocking event loop
+
 
 @app.post("/stream-ask")
 async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
     """This endpoint includes topic continuity analysis for context-aware responses."""
+
     async def stream_generator() -> AsyncGenerator[str]:
-        logger.info(f"Incoming question: '{request.question[:50]}...' from user {request.user_id}")
+        logger.info(
+            f"Incoming question: '{request.question[:50]}...' from user {request.user_id}"
+        )
 
         # FIX: Run blocking Neo4j operations in thread pool to avoid blocking event loop
         try:
             # Check if first message and get current topic
             existing_history = await asyncio.to_thread(
-                get_chat_history,
-                request.session_id
+                get_chat_history, request.session_id
             )
             is_first_message = not existing_history or not existing_history.messages
-            
+
             # On first message, use the question as the topic
             topic = request.question if is_first_message else None
-            
+
             await asyncio.to_thread(
-                link_session_to_user,
-                request.session_id,
-                request.user_id,
-                topic
+                link_session_to_user, request.session_id, request.user_id, topic
             )
 
             # Get chat history and current topic
             chat_history_obj = await asyncio.to_thread(
-                get_chat_history,
-                request.session_id
+                get_chat_history, request.session_id
             )
             stored_messages = chat_history_obj.messages if chat_history_obj else []
-            
+
             session_topic = await asyncio.to_thread(
-                get_session_topic,
-                request.session_id
+                get_session_topic, request.session_id
             )
-            
+
             # Analyze topic continuity
             similarity_data = await asyncio.to_thread(
-                calculate_topic_similarity,
-                request.question,
-                session_topic
+                calculate_topic_similarity, request.question, session_topic
             )
-            
+
             logger.info(f"Topic continuity: {similarity_data['recommendation']}")
-            
+
             # Update topic if significant shift detected
             if not is_first_message:
                 await asyncio.to_thread(
                     update_session_topic_if_changed,
                     request.session_id,
                     request.question,
-                    similarity_data
+                    similarity_data,
                 )
 
         except Exception as e:
@@ -230,23 +249,22 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
                 "similarity_score": 1.0,
                 "is_continuation": True,
                 "confidence_level": "high",
-                "recommendation": "Error in analysis, proceeding normally"
+                "recommendation": "Error in analysis, proceeding normally",
             }
 
         # Convert to the format your chain expects
         formatted_history = [
-            {"role": msg.type, "content": msg.content}
-            for msg in stored_messages
+            {"role": msg.type, "content": msg.content} for msg in stored_messages
         ]
 
-        logger.info(f"Chat history: {len(formatted_history)} messages, topic: {session_topic}")
+        logger.info(
+            f"Chat history: {len(formatted_history)} messages, topic: {session_topic}"
+        )
 
         # Add user message to DB
         try:
             await asyncio.to_thread(
-                add_user_message_to_session,
-                request.session_id,
-                request.question
+                add_user_message_to_session, request.session_id, request.question
             )
         except Exception as e:
             logger.warning(f"Error saving user message: {e}")
@@ -262,12 +280,18 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
                     "question": request.question,
                     "chat_history": formatted_history,
                     "session_topic": session_topic,
-                    "session_id": request.session_id
+                    "session_id": request.session_id,
                 },
             ):
                 # Extract content and reasoning
-                content_chunk = chunk.content if hasattr(chunk, 'content') else str(chunk)
-                reasoning_chunk = chunk.additional_kwargs.get("reasoning_content", "") if hasattr(chunk, 'additional_kwargs') else ""
+                content_chunk = (
+                    chunk.content if hasattr(chunk, "content") else str(chunk)
+                )
+                reasoning_chunk = (
+                    chunk.additional_kwargs.get("reasoning_content", "")
+                    if hasattr(chunk, "additional_kwargs")
+                    else ""
+                )
 
                 # FIX: Avoid O(n²) string concatenation - collect in list
                 response_chunks.append(content_chunk)
@@ -286,7 +310,7 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
             logger.error(f"Error during streaming: {e}")
             error_event = {
                 "content": f"[Error processing response: {str(e)}]",
-                "reasoning_content": ""
+                "reasoning_content": "",
             }
             yield f"data: {json.dumps(error_event)}\n\n"
             raise
@@ -299,7 +323,7 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
                 add_ai_message_to_session,
                 request.session_id,
                 full_response,
-                full_thought
+                full_thought,
             )
             logger.info(f"Response saved to DB: {len(full_response)} chars")
         except Exception as e:
@@ -317,8 +341,9 @@ async def stream_ask_question(request: QueryRequest) -> StreamingResponse:
             "X-Accel-Buffering": "no",
             "Connection": "keep-alive",
             "Access-Control-Allow-Origin": "*",
-        }
+        },
     )
+
 
 # uvicorn main:app --reload
 if __name__ == "__main__":
