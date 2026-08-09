@@ -1,5 +1,9 @@
 # app.py
-import json, requests, datetime, uuid, httpx, os, logging
+import json
+import requests
+import uuid
+import httpx
+import logging
 from httpx_sse import connect_sse
 import streamlit as st
 
@@ -299,7 +303,7 @@ else:
             if active_chat["title"] == "New Chat" or active_chat["title"].startswith(
                 "Chat "
             ):
-                active_chat["title"] = prompt[:15] + "..."  # Truncate for display
+                active_chat["title"] = prompt[:10] + "..."  # Truncate for display
 
             with st.chat_message(name=st.session_state.get("user_name", "User")):
                 st.markdown(prompt)

@@ -176,7 +176,6 @@ def create_constraints(driver):
     )
 
 
-
 def format_docs(docs):
     return "\n\n".join(doc.page_content for doc in docs)
 
@@ -209,28 +208,33 @@ def format_docs_with_metadata(docs: List[Document]) -> str:
     )
 
 
-# --- Mermaid Rendering Function ---
-# --- Mermaid Rendering Function ---
 def render_message_with_mermaid(content, key_suffix=""):
     """Parses a message and renders Markdown and Mermaid blocks separately."""
-    # Use re.split to keep the text and the diagrams in order
-    # The pattern captures the mermaid block, and split keeps the delimiters
-    parts = re.split(r"(```mermaid\n.*?\n```)", content, flags=re.DOTALL)
+    parts = re.split(
+        r"(```mermaid\s+.*?\s*```)", content, flags=re.DOTALL | re.IGNORECASE
+    )
 
     for i, part in enumerate(parts):
         # This is a mermaid block
-        if part.strip().startswith("```mermaid"):
+        if part.strip().lower().startswith("```mermaid"):
             # Extract the code by removing the fences
-            mermaid_code = (
-                part.strip().replace("```mermaid", "").replace("```", "").strip()
-            )
+            code = part.strip()
+            # Normalize start
+            if code.lower().startswith("```mermaid"):
+                code = code[10:]
+            # Normalize end
+            if code.endswith("```"):
+                code = code[:-3]
+
+            mermaid_code = code.strip()
+
             if mermaid_code:
                 # Generate a unique key based on the mermaid code content AND the suffix/position
                 # This ensures the same diagram always gets the same key, but different instances don't collide
                 combined_key = f"{mermaid_code}-{key_suffix}-{i}"
                 key = hashlib.sha256(combined_key.encode()).hexdigest()
                 try:
-                    st_mermaid(mermaid_code, key=key)
+                    st_mermaid(mermaid_code, key=key, height=500)
                 except Exception as e:
                     st.error(f"Failed to render Mermaid diagram: {e}")
                     st.code(
