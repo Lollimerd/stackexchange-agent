@@ -15,7 +15,7 @@ _tool_call_counts: dict[str, int] = {}
 _tool_call_start_times: dict[str, float] = {}
 _latest_session_id: str = ""
 
-MAX_TOOL_CALLS = 2
+MAX_TOOL_CALLS = 1
 MAX_RETRIEVAL_DURATION_SECONDS = 30.0
 
 
@@ -56,7 +56,7 @@ def increment_tool_call_count(session_id: str = "") -> int:
 def check_retrieval_hard_stop(session_id: str = "") -> tuple[bool, str]:
     """
     Checks if retrieval should hard stop based on either:
-    1. Maximum tool call count reached (max 2 per query)
+    1. Maximum tool call count reached (max 1 per query)
     2. Maximum retrieval duration reached (30 seconds max)
 
     Returns (should_stop, message).
@@ -67,7 +67,7 @@ def check_retrieval_hard_stop(session_id: str = "") -> tuple[bool, str]:
 
     if current_count >= MAX_TOOL_CALLS:
         return True, (
-            "[HARD STOP] Tool call limit reached (max 2 per query). "
+            "[HARD STOP] Tool call limit reached (max 1 per query). "
             "You have already searched the knowledge base the maximum number of times. "
             "Do NOT call this tool again. Formulate your final answer now using what you have."
         )

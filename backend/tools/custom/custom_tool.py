@@ -240,7 +240,7 @@ class CustomRAGTool(BaseTool):
         return (
             context
             if context.strip()
-            else "No relevant data found in the knowledge graph for this question. Answer using your general knowledge."
+            else "No relevant data found in the knowledge graph for this question."
         )
 
     # asynchronous execution
@@ -293,7 +293,7 @@ class CustomRAGTool(BaseTool):
         return (
             context
             if context.strip()
-            else "No relevant data found in the knowledge graph for this question. Answer using your general knowledge."
+            else "No relevant data found in the knowledge graph for this question."
         )
 
 
