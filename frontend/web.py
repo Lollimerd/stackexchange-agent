@@ -48,10 +48,14 @@ if "chats" not in st.session_state:
 # Helper function to get the active chat object
 def get_active_chat():
     """Get the active chat data, creating it if necessary."""
-    chat_id = st.session_state.active_chat_id
-    if chat_id not in st.session_state.chats:
-        # Fallback if somehow ID is missing
-        return None
+    chat_id = st.session_state.get("active_chat_id")
+    if not chat_id or chat_id not in st.session_state.chats:
+        # Fallback to latest chat if ID is missing or invalid
+        if st.session_state.chats:
+            st.session_state.active_chat_id = list(st.session_state.chats.keys())[-1]
+            chat_id = st.session_state.active_chat_id
+        else:
+            return None
 
     chat = st.session_state.chats[chat_id]
 
@@ -172,9 +176,9 @@ with st.sidebar:
         "active_chat_id" not in st.session_state
         or st.session_state.active_chat_id is None
     ):
-        # If we have chats from DB, pick the first one (most recent)
+        # If we have chats from DB, pick the latest one (which is on top of sidebar)
         if st.session_state.chats:
-            st.session_state.active_chat_id = list(st.session_state.chats.keys())[0]
+            st.session_state.active_chat_id = list(st.session_state.chats.keys())[-1]
         else:
             # Create a default first chat if DB is empty
             first_chat_id = str(uuid.uuid4())
@@ -232,11 +236,11 @@ with st.sidebar:
                 # Remove the chat from the dictionary
                 del st.session_state.chats[chat_id]
 
-                # If the deleted chat was the active one, select a new active chat
+                # If the deleted chat was the active one, select a new active chat (latest remaining)
                 if st.session_state.active_chat_id == chat_id:
                     remaining_chats = list(st.session_state.chats.keys())
                     st.session_state.active_chat_id = (
-                        remaining_chats[0] if remaining_chats else None
+                        remaining_chats[-1] if remaining_chats else None
                     )
                 st.rerun()
 
