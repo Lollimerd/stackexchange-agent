@@ -115,9 +115,10 @@ def get_all_sessions():
         logger.error(f"Error getting all sessions: {e}")
         return []
 
-def link_session_to_user(session_id: str, user_id: str):
+def link_session_to_user(session_id: str, user_id: str, topic: str = None):
     """
     Links a session to an AppUser. Creates the user if not exists.
+    Optionally stores the conversation topic for the session.
     """
     if not user_id:
         return
@@ -126,15 +127,46 @@ def link_session_to_user(session_id: str, user_id: str):
         # FIX: Use pooled connection
         graph = get_graph_instance()
 
-        query = """
-        MERGE (u:AppUser {id: $user_id})
-        MERGE (s:Session {id: $session_id})
-        MERGE (u)-[:HAS_SESSION]->(s)
-        """
-        graph.query(query, params={"user_id": user_id, "session_id": session_id})
-        logger.debug(f"Linked session {session_id} to user {user_id}")
+        # Set topic on the session if provided (typically on first message)
+        if topic:
+            query = """
+            MERGE (u:AppUser {id: $user_id})
+            MERGE (s:Session {id: $session_id, topic: $topic})
+            ON CREATE SET s.topic = $topic
+            MERGE (u)-[:HAS_SESSION]->(s)
+            """
+            graph.query(query, params={"user_id": user_id, "session_id": session_id, "topic": topic})
+        else:
+            query = """
+            MERGE (u:AppUser {id: $user_id})
+            MERGE (s:Session {id: $session_id})
+            MERGE (u)-[:HAS_SESSION]->(s)
+            """
+            graph.query(query, params={"user_id": user_id, "session_id": session_id})
+        
+        logger.debug(f"Linked session {session_id} to user {user_id}" + (f" with topic: {topic}" if topic else ""))
     except Exception as e:
         logger.error(f"Error linking session to user: {e}")
+
+def get_session_topic(session_id: str) -> str:
+    """
+    Retrieves the topic for a specific session.
+    Returns empty string if no topic is set.
+    """
+    try:
+        graph = get_graph_instance()
+        query = """
+        MATCH (s:Session {id: $session_id})
+        RETURN s.topic AS topic
+        LIMIT 1
+        """
+        result = graph.query(query, params={"session_id": session_id})
+        if result and result[0].get("topic"):
+            return result[0]["topic"]
+        return ""
+    except Exception as e:
+        logger.error(f"Error getting session topic: {e}")
+        return ""
 
 def get_user_sessions(user_id: str):
     """

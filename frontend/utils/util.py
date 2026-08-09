@@ -94,17 +94,20 @@ def render_message_with_mermaid(content):
     # The pattern captures the mermaid block, and split keeps the delimiters
     parts = re.split(r"(```mermaid\n.*?\n```)", content, flags=re.DOTALL)
 
-    for i, part in enumerate(parts):
+    for part in parts:
         # This is a mermaid block
         if part.strip().startswith("```mermaid"):
             # Extract the code by removing the fences
-            mermaid_code = part.strip().replace("```mermaid", "").replace("```", "")
-            key = hashlib.sha256(mermaid_code.encode()).hexdigest()
-            try:
-                st_mermaid(mermaid_code, key=f"{key}_{i}")
-            except Exception as e:
-                st.error(f"Failed to render Mermaid diagram: {e}")
-                st.code(mermaid_code, language="mermaid") # Show the raw code on failure
+            mermaid_code = part.strip().replace("```mermaid", "").replace("```", "").strip()
+            if mermaid_code:
+                # Generate a unique key based on the mermaid code content only
+                # This ensures the same diagram always gets the same key
+                key = hashlib.sha256(mermaid_code.encode()).hexdigest()
+                try:
+                    st_mermaid(mermaid_code, key=key)
+                except Exception as e:
+                    st.error(f"Failed to render Mermaid diagram: {e}")
+                    st.code(mermaid_code, language="mermaid") # Show the raw code on failure
         else:
             # This is a regular markdown block
             if part.strip():

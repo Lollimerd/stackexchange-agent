@@ -234,7 +234,8 @@ try:
     graph_rag_chain = (
         RunnablePassthrough.assign(
             context=lambda x: format_docs_with_metadata(retrieve_context(x["question"])),
-            chat_history_formatted=lambda x: format_chat_history(x.get("chat_history", []))
+            chat_history_formatted=lambda x: format_chat_history(x.get("chat_history", [])),
+            session_topic=lambda x: x.get("session_topic", "General Technical Discussion")
         )
         | analyst_prompt
         | ANSWER_LLM
