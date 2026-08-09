@@ -4,38 +4,19 @@ uvicorn
 pydantic
 
 # LangChain Ecosystem
-langchain
+langchain>=1.0
 langchain-core
 langchain-community
 langchain-neo4j
 langchain-ollama
-
-# Database & Graph
-neo4j
 
 # AI/ML & Embeddings
 sentence-transformers
 torch  # Explicitly stating torch is good for reproducibility with Rerankers
 
-# Utilities
-python-dotenv
-docker
-httpx
-# Web Framework
-fastapi
-uvicorn
-pydantic
-
-# LangChain Ecosystem
-langchain
-langchain-core
-langchain-community
-langchain-neo4j
-langchain-ollama
-langchain-classic
-
 # Database & Graph
 neo4j
+ollama
 
 # AI/ML & Embeddings
 sentence-transformers
