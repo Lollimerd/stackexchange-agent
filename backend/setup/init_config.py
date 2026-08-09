@@ -1,6 +1,7 @@
 """Setting up ollama models, vectorstores and Neo4j Configs"""
 
 import os
+from functools import lru_cache
 from dotenv import load_dotenv
 from langchain_ollama import OllamaEmbeddings, ChatOllama
 from langchain_neo4j import Neo4jGraph, Neo4jVector
@@ -36,7 +37,8 @@ def answer_LLM():
     )
 
 
-# embedding model
+# embedding model — singleton to avoid reloading on every call
+@lru_cache(maxsize=1)
 def embedding_model():
     return OllamaEmbeddings(
         model="jina/jina-embeddings-v2-base-en:latest",
@@ -46,11 +48,15 @@ def embedding_model():
     )
 
 
-# reranker model
+# reranker model — singleton: ONNX + TensorRT compilation happens once
+@lru_cache(maxsize=1)
 def reranker_model():
     return HuggingFaceCrossEncoder(
         model_name="BAAI/bge-reranker-base",
-        model_kwargs={"device": "cuda"},  # Use 'cuda' for GPU acceleration
+        model_kwargs={
+            "device": "cuda",  # Use 'cuda' for GPU acceleration
+            "backend": "onnx",
+        },
     )
 
 
