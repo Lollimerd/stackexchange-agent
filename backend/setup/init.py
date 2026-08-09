@@ -22,7 +22,7 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 
 # qwen3:8b works for now with limited context of 40k, qwen3:30b works with 256k max
 ANSWER_LLM = ChatOllama(
-    model="qwen3:1.7b", # Ensure your model produces <think> tags
+    model="qwen3:0.6b", # Ensure your model produces <think> tags
     base_url=OLLAMA_BASE_URL, 
     num_ctx=40960, # 40k
     num_predict=-2, # fill context
