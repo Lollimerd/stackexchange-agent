@@ -3,11 +3,18 @@ name: stackexchange-agent
 
 services:
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.32.1
     container_name: localLLMs
     ports:
       - "11430:11434"
-    gpus: all
+    # gpus: all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [ gpu, compute, utility ]
     pull_policy: missing
     environment:
       - OLLAMA_FLASH_ATTENTION=1
@@ -39,12 +46,14 @@ services:
       - neo4j_stackexchange_logs:/logs
     environment:
       - NEO4J_AUTH=${NEO4J_USERNAME}/${NEO4J_PASSWORD}
+      - NEO4J_server_jvm_additional=--add-modules=jdk.incubator.vector
       - NEO4J_PLUGINS=["apoc", "graph-data-science"]
       - NEO4J_dbms_security_procedures_unrestricted=apoc.*,gds.*
       - NEO4J_dbms_security_procedures_allowlist=apoc.*,gds.*
       - NEO4J_apoc_export_file_enabled=true
       - NEO4J_apoc_import_file_enabled=true
       - NEO4J_apoc_import_file_use__neo4j__config=true
+      - NEO4J_dbms_usage_report.enabled=false
     restart: unless-stopped
     networks:
       - app-network
@@ -62,7 +71,6 @@ services:
       - "1001" # Your host's docker group GID
     container_name: fastapi-backend
     restart: unless-stopped
-    pull_policy: missing
     ports:
       - 8000:8000
     environment:
@@ -85,8 +93,8 @@ services:
     deploy:
       resources:
         # limits:
-        #   # memory: 8G # cap container RAM
-        #   cpus: '6' # cap CPU cores
+        #   # memory: 8G
+        #   cpus: '6'
         reservations:
           devices:
             - driver: nvidia
